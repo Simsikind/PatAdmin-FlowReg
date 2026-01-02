@@ -71,15 +71,21 @@ The application stores minimal configuration data locally in the application dir
 
 ### Installation
 1.  Clone or download this repository.
-2.  Install the required Python packages:
-    ```bash
-    pip install customtkinter requests tkcalendar pywin32
-    ```
-    *Note: `pywin32` is optional but recommended for better printer detection.*
-3.  Run the application:
-    ```bash
-    python main.py
-    ```
+2.  **Easy Start (Windows):**
+    *   Double-click `start.bat`.
+    *   This script will automatically check if Python and all required packages are installed.
+    *   If anything is missing, it will tell you what to do.
+    *   If everything is ready, it launches the application.
+
+3.  **Manual Installation:**
+    *   Install the required Python packages:
+        ```bash
+        pip install -r requirements.txt
+        ```
+    *   Run the application:
+        ```bash
+        python main.py
+        ```
 
 ### Dependencies
 - **CustomTkinter:** Modern UI framework based on Tkinter.
