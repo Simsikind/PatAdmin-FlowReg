@@ -38,6 +38,81 @@ class AppSettings:
 	fullscreen: bool = False
 	theme: str = "blue"
 	appearance_mode: str = "System"
+	language: str = "en"
+
+
+class Translator:
+	def __init__(self, locale_dir: str, language: str = "en"):
+		self.locale_dir = locale_dir
+		self.language = language
+		self.translations: dict[str, str] = {}
+		self.load_language(language)
+
+	def load_language(self, language: str) -> None:
+		self.language = language
+		
+		# 1. Load fallback (English)
+		fallback_path = os.path.join(self.locale_dir, "en.json")
+		fallback_data = {}
+		if os.path.exists(fallback_path):
+			try:
+				with open(fallback_path, "r", encoding="utf-8") as f:
+					fallback_data = json.load(f)
+			except Exception:
+				pass
+
+		# 2. Load target language
+		target_path = os.path.join(self.locale_dir, f"{language}.json")
+		target_data = {}
+		if language != "en" and os.path.exists(target_path):
+			try:
+				with open(target_path, "r", encoding="utf-8") as f:
+					target_data = json.load(f)
+			except Exception:
+				pass
+		elif language == "en":
+			target_data = fallback_data
+
+		# 3. Merge
+		self.translations = fallback_data.copy()
+		self.translations.update(target_data)
+
+	def get_available_languages(self) -> list[tuple[str, str]]:
+		results = []
+		if not os.path.exists(self.locale_dir):
+			return [("en", "English")]
+
+		for filename in os.listdir(self.locale_dir):
+			if filename.endswith(".json"):
+				code = filename[:-5]
+				name = code
+				try:
+					with open(os.path.join(self.locale_dir, filename), "r", encoding="utf-8") as f:
+						data = json.load(f)
+						name = data.get("_language_name", code)
+				except Exception:
+					pass
+				results.append((code, name))
+		
+		# Sort: English first, then others alphabetically by code
+		results.sort(key=lambda x: (0 if x[0] == "en" else 1, x[0]))
+		return results
+
+	def get(self, key: str, *args) -> str:
+		val = self.translations.get(key, key)
+		if args:
+			try:
+				return val.format(*args)
+			except Exception:
+				return val
+		return val
+
+
+_translator = Translator(os.path.join(os.path.dirname(os.path.abspath(__file__)), "locales"))
+
+
+def tr(key: str, *args) -> str:
+	return _translator.get(key, *args)
 
 
 def _credentials_path() -> str:
@@ -83,6 +158,10 @@ def load_settings() -> AppSettings:
 		if isinstance(appearance_mode, str) and appearance_mode.strip():
 			settings.appearance_mode = appearance_mode.strip()
 
+		language = data.get("language")
+		if isinstance(language, str) and language.strip():
+			settings.language = language.strip()
+
 	# Clamp to sane minimum
 	if settings.refresh_interval_sec < 2:
 		settings.refresh_interval_sec = 2
@@ -100,6 +179,7 @@ def save_settings(settings: AppSettings) -> None:
 		"fullscreen": bool(settings.fullscreen),
 		"theme": str(settings.theme),
 		"appearance_mode": str(settings.appearance_mode),
+		"language": str(settings.language),
 	}
 	with open(path, "w", encoding="utf-8") as f:
 		json.dump(data, f, ensure_ascii=False, indent=2)
@@ -141,7 +221,7 @@ class ServerDialog(ctk.CTkToplevel):
 	def __init__(self, master: ctk.CTk, initial_url: str):
 		super().__init__(master)
 
-		self.title("Server")
+		self.title(tr("server"))
 		self.resizable(False, False)
 
 		self._value: str | None = None
@@ -149,7 +229,7 @@ class ServerDialog(ctk.CTkToplevel):
 
 		self.grid_columnconfigure(0, weight=1)
 
-		ctk.CTkLabel(self, text="Server URL:").grid(row=0, column=0, padx=12, pady=(12, 6), sticky="w")
+		ctk.CTkLabel(self, text=tr("server_url")).grid(row=0, column=0, padx=12, pady=(12, 6), sticky="w")
 		self.entry = ctk.CTkEntry(self, width=420)
 		self.entry.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="ew")
 		self.entry.insert(0, initial_url or "")
@@ -157,8 +237,8 @@ class ServerDialog(ctk.CTkToplevel):
 		btns = ctk.CTkFrame(self, fg_color="transparent")
 		btns.grid(row=2, column=0, padx=12, pady=(0, 12), sticky="e")
 
-		ctk.CTkButton(btns, text="Cancel", command=self._on_cancel).pack(side="right")
-		ctk.CTkButton(btns, text="OK", command=self._on_ok).pack(side="right", padx=(0, 8))
+		ctk.CTkButton(btns, text=tr("cancel"), command=self._on_cancel).pack(side="right")
+		ctk.CTkButton(btns, text=tr("ok"), command=self._on_ok).pack(side="right", padx=(0, 8))
 
 		# Hotkeys
 		self.bind("<Return>", lambda _e: self._on_ok())
@@ -171,10 +251,10 @@ class ServerDialog(ctk.CTkToplevel):
 	def _on_ok(self) -> None:
 		value = (self.entry.get() or "").strip()
 		if not value:
-			messagebox.showerror("Server", "Please enter a server URL.", parent=self)
+			messagebox.showerror(tr("server"), tr("server_error_empty"), parent=self)
 			return
 		if not (value.startswith("http://") or value.startswith("https://")):
-			messagebox.showerror("Server", "Server URL must start with http:// or https://", parent=self)
+			messagebox.showerror(tr("server"), tr("server_error_protocol"), parent=self)
 			return
 		self._value = value
 		self.destroy()
@@ -191,7 +271,7 @@ class LoginDialog(ctk.CTkToplevel):
 	def __init__(self, master: ctk.CTk, *, initial_username: str, initial_password: str, initial_remember: bool):
 		super().__init__(master)
 
-		self.title("Login")
+		self.title(tr("login"))
 		self.resizable(False, False)
 
 		self._result: tuple[str, str, bool] | None = None
@@ -199,28 +279,28 @@ class LoginDialog(ctk.CTkToplevel):
 
 		self.grid_columnconfigure(0, weight=1)
 
-		ctk.CTkLabel(self, text="Username:").grid(row=0, column=0, padx=12, pady=(12, 6), sticky="w")
+		ctk.CTkLabel(self, text=tr("username")).grid(row=0, column=0, padx=12, pady=(12, 6), sticky="w")
 		self.user_entry = ctk.CTkEntry(self, width=340)
 		self.user_entry.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="ew")
 		if initial_username:
 			self.user_entry.insert(0, initial_username)
 
-		ctk.CTkLabel(self, text="Password:").grid(row=2, column=0, padx=12, pady=(0, 6), sticky="w")
+		ctk.CTkLabel(self, text=tr("password")).grid(row=2, column=0, padx=12, pady=(0, 6), sticky="w")
 		self.pass_entry = ctk.CTkEntry(self, width=340, show="*")
 		self.pass_entry.grid(row=3, column=0, padx=12, pady=(0, 12), sticky="ew")
 		if initial_password:
 			self.pass_entry.insert(0, initial_password)
 
 		self.remember_var = ctk.BooleanVar(value=bool(initial_remember))
-		ctk.CTkCheckBox(self, text="Save user for later", variable=self.remember_var).grid(
+		ctk.CTkCheckBox(self, text=tr("save_user"), variable=self.remember_var).grid(
 			row=4, column=0, padx=12, pady=(0, 12), sticky="w"
 		)
 
 		btns = ctk.CTkFrame(self, fg_color="transparent")
 		btns.grid(row=5, column=0, padx=12, pady=(0, 12), sticky="e")
 
-		ctk.CTkButton(btns, text="Cancel", command=self._on_cancel).pack(side="right")
-		ctk.CTkButton(btns, text="OK", command=self._on_ok).pack(side="right", padx=(0, 8))
+		ctk.CTkButton(btns, text=tr("cancel"), command=self._on_cancel).pack(side="right")
+		ctk.CTkButton(btns, text=tr("ok"), command=self._on_ok).pack(side="right", padx=(0, 8))
 
 		# Hotkeys
 		self.bind("<Return>", lambda _e: self._on_ok())
@@ -236,10 +316,10 @@ class LoginDialog(ctk.CTkToplevel):
 		remember = bool(self.remember_var.get())
 
 		if not username:
-			messagebox.showerror("Login", "Please enter a username.", parent=self)
+			messagebox.showerror(tr("login"), tr("login_error_username"), parent=self)
 			return
 		if not password:
-			messagebox.showerror("Login", "Please enter a password.", parent=self)
+			messagebox.showerror(tr("login"), tr("login_error_password"), parent=self)
 			return
 
 		self._result = (username, password, remember)
@@ -257,7 +337,7 @@ class ConcernDialog(ctk.CTkToplevel):
 	def __init__(self, master: ctk.CTk, concerns: list[dict], initial_concern_id: int | None):
 		super().__init__(master)
 
-		self.title("Select Concern")
+		self.title(tr("concern"))
 		self.resizable(False, False)
 
 		self._value: int | None = None
@@ -287,7 +367,7 @@ class ConcernDialog(ctk.CTkToplevel):
 			values.append(display)
 
 		self.grid_columnconfigure(0, weight=1)
-		ctk.CTkLabel(self, text="Concern:").grid(row=0, column=0, padx=12, pady=(12, 6), sticky="w")
+		ctk.CTkLabel(self, text=tr("concern")).grid(row=0, column=0, padx=12, pady=(12, 6), sticky="w")
 
 		self.selection_var = ctk.StringVar(value=values[0] if values else "")
 		# Try to preselect the currently active concern
@@ -297,13 +377,13 @@ class ConcernDialog(ctk.CTkToplevel):
 					self.selection_var.set(disp)
 					break
 
-		self.option = ctk.CTkOptionMenu(self, values=values if values else ["(no open concerns)"], variable=self.selection_var)
+		self.option = ctk.CTkOptionMenu(self, values=values if values else [tr("no_open_concerns")], variable=self.selection_var)
 		self.option.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="ew")
 
 		btns = ctk.CTkFrame(self, fg_color="transparent")
 		btns.grid(row=2, column=0, padx=12, pady=(0, 12), sticky="e")
-		ctk.CTkButton(btns, text="Cancel", command=self._on_cancel).pack(side="right")
-		ctk.CTkButton(btns, text="OK", command=self._on_ok).pack(side="right", padx=(0, 8))
+		ctk.CTkButton(btns, text=tr("cancel"), command=self._on_cancel).pack(side="right")
+		ctk.CTkButton(btns, text=tr("ok"), command=self._on_ok).pack(side="right", padx=(0, 8))
 
 		# Hotkeys
 		self.bind("<Return>", lambda _e: self._on_ok())
@@ -318,7 +398,7 @@ class ConcernDialog(ctk.CTkToplevel):
 		cid = self._display_to_id.get(selected)
 		name = self._display_to_name.get(selected)
 		if cid is None:
-			messagebox.showerror("Select Concern", "Please select a concern.", parent=self)
+			messagebox.showerror(tr("concern"), tr("select_concern_error"), parent=self)
 			return
 		self._value = cid
 		self._name = name
@@ -339,17 +419,17 @@ class DetailsDialog(ctk.CTkToplevel):
 	def __init__(self, master: ctk.CTk, *, server: str, username: str, login_text: str, concern_name: str | None):
 		super().__init__(master)
 
-		self.title("Details")
+		self.title(tr("info"))
 		self.resizable(False, False)
 		self.protocol("WM_DELETE_WINDOW", self.destroy)
 
 		self.grid_columnconfigure(0, weight=1)
 
 		rows = [
-			("Server", server or "-"),
-			("User", username or "-"),
-			("Login", login_text),
-			("Concern", concern_name or "-"),
+			(tr("server"), server or "-"),
+			(tr("user"), username or "-"),
+			(tr("login"), login_text),
+			(tr("concern"), concern_name or "-"),
 		]
 
 		for idx, (label, value) in enumerate(rows):
@@ -360,7 +440,7 @@ class DetailsDialog(ctk.CTkToplevel):
 				row=idx, column=1, padx=(0, 12), pady=(12 if idx == 0 else 6, 0), sticky="w"
 			)
 
-		ctk.CTkButton(self, text="Close", command=self.destroy).grid(row=len(rows), column=0, columnspan=2, padx=12, pady=12, sticky="e")
+		ctk.CTkButton(self, text=tr("close"), command=self.destroy).grid(row=len(rows), column=0, columnspan=2, padx=12, pady=12, sticky="e")
 
 		# Hotkeys
 		self.bind("<Return>", lambda _e: self.destroy())
@@ -385,7 +465,7 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		prefill_group_display: str,
 	):
 		super().__init__(master)
-		self.title("Patient")
+		self.title(tr("register_new_patient"))
 		self.resizable(True, False)
 		self.protocol("WM_DELETE_WINDOW", self.destroy)
 
@@ -406,9 +486,9 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		form.grid_columnconfigure(2, weight=1)
 
 		# Row 0: Last name / First name / Number
-		ctk.CTkLabel(form, text="Last name", anchor="w").grid(row=0, column=0, padx=(0, 10), pady=(10, 4), sticky="w")
-		ctk.CTkLabel(form, text="First name", anchor="w").grid(row=0, column=1, padx=(0, 10), pady=(10, 4), sticky="w")
-		ctk.CTkLabel(form, text="Number", anchor="w").grid(row=0, column=2, padx=(0, 0), pady=(10, 4), sticky="w")
+		ctk.CTkLabel(form, text=tr("lastname"), anchor="w").grid(row=0, column=0, padx=(0, 10), pady=(10, 4), sticky="w")
+		ctk.CTkLabel(form, text=tr("firstname"), anchor="w").grid(row=0, column=1, padx=(0, 10), pady=(10, 4), sticky="w")
+		ctk.CTkLabel(form, text=tr("number"), anchor="w").grid(row=0, column=2, padx=(0, 0), pady=(10, 4), sticky="w")
 
 		self.lastname_entry = ctk.CTkEntry(form)
 		self.firstname_entry = ctk.CTkEntry(form)
@@ -418,9 +498,9 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		self.number_entry.grid(row=1, column=2, padx=(0, 0), pady=(0, 10), sticky="ew")
 
 		# Row 2: Insurance / Birth date / Sex
-		ctk.CTkLabel(form, text="Insurance", anchor="w").grid(row=2, column=0, padx=(0, 10), pady=(0, 4), sticky="w")
-		ctk.CTkLabel(form, text="Birth date", anchor="w").grid(row=2, column=1, padx=(0, 10), pady=(0, 4), sticky="w")
-		ctk.CTkLabel(form, text="Sex", anchor="w").grid(row=2, column=2, padx=(0, 0), pady=(0, 4), sticky="w")
+		ctk.CTkLabel(form, text=tr("insurance"), anchor="w").grid(row=2, column=0, padx=(0, 10), pady=(0, 4), sticky="w")
+		ctk.CTkLabel(form, text=tr("birthdate"), anchor="w").grid(row=2, column=1, padx=(0, 10), pady=(0, 4), sticky="w")
+		ctk.CTkLabel(form, text=tr("sex"), anchor="w").grid(row=2, column=2, padx=(0, 0), pady=(0, 4), sticky="w")
 
 		self.svnr_entry = ctk.CTkEntry(form)
 		self.svnr_entry.grid(row=3, column=0, padx=(0, 10), pady=(0, 14), sticky="ew")
@@ -442,7 +522,7 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		self._setup_combobox_cycling(self.sex_box)
 
 		# Read Ecard Button
-		self.ecard_btn = ctk.CTkButton(form, text="Read Ecard", command=self._on_read_ecard)
+		self.ecard_btn = ctk.CTkButton(form, text=tr("read_ecard"), command=self._on_read_ecard)
 		self.ecard_btn.grid(
 			row=4, column=0, columnspan=3, padx=(0, 0), pady=(0, 14), sticky="ew"
 		)
@@ -450,13 +530,13 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 			self.ecard_btn.configure(state="disabled")
 
 		# Section: Treatment
-		ctk.CTkLabel(form, text="Treatment", font=ctk.CTkFont(size=22, weight="bold"), anchor="w").grid(
+		ctk.CTkLabel(form, text=tr("treatment"), font=ctk.CTkFont(size=22, weight="bold"), anchor="w").grid(
 			row=5, column=0, columnspan=3, padx=(0, 0), pady=(0, 8), sticky="w"
 		)
 		sep = ctk.CTkFrame(form, height=2)
 		sep.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(0, 14))
 
-		ctk.CTkLabel(form, text="Treatment group", anchor="w").grid(row=7, column=0, padx=(0, 10), pady=(0, 4), sticky="w")
+		ctk.CTkLabel(form, text=tr("treatment_group"), anchor="w").grid(row=7, column=0, padx=(0, 10), pady=(0, 4), sticky="w")
 		self.group_var = ctk.StringVar(value=prefill_group_display or "")
 		values = [""] + list(group_choices or [])
 		self.group_menu = ctk.CTkComboBox(form, values=values, variable=self.group_var, state="readonly")
@@ -464,9 +544,9 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		self._setup_combobox_cycling(self.group_menu)
 
 		# Diagnosis / Info / NACA
-		ctk.CTkLabel(form, text="Diagnosis", anchor="w").grid(row=9, column=0, padx=(0, 10), pady=(0, 4), sticky="w")
-		ctk.CTkLabel(form, text="Info", anchor="w").grid(row=9, column=1, padx=(0, 10), pady=(0, 4), sticky="w")
-		ctk.CTkLabel(form, text="NACA", anchor="w").grid(row=9, column=2, padx=(0, 0), pady=(0, 4), sticky="w")
+		ctk.CTkLabel(form, text=tr("diagnosis"), anchor="w").grid(row=9, column=0, padx=(0, 10), pady=(0, 4), sticky="w")
+		ctk.CTkLabel(form, text=tr("info"), anchor="w").grid(row=9, column=1, padx=(0, 10), pady=(0, 4), sticky="w")
+		ctk.CTkLabel(form, text=tr("naca"), anchor="w").grid(row=9, column=2, padx=(0, 0), pady=(0, 4), sticky="w")
 
 		self.diagnosis_text = ctk.CTkTextbox(form, height=90)
 		self.info_text = ctk.CTkTextbox(form, height=90)
@@ -485,8 +565,8 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		# Buttons
 		btns = ctk.CTkFrame(form, fg_color="transparent")
 		btns.grid(row=11, column=0, columnspan=3, sticky="w", pady=(0, 10))
-		ctk.CTkButton(btns, text="Save patient", command=self._on_save).pack(side="left", padx=(0, 10))
-		ctk.CTkButton(btns, text="Close", command=self.destroy).pack(side="left")
+		ctk.CTkButton(btns, text=tr("save_patient"), command=self._on_save).pack(side="left", padx=(0, 10))
+		ctk.CTkButton(btns, text=tr("close"), command=self.destroy).pack(side="left")
 
 		# Hotkeys
 		self.bind("<Escape>", lambda _e: self.destroy())
@@ -609,7 +689,7 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 				self.sex_var.set("None/Other")
 
 		except Exception as e:
-			messagebox.showerror("Read Ecard", f"Could not read e-card: {e}", parent=self)
+			messagebox.showerror(tr("read_ecard"), tr("read_ecard_error", e), parent=self)
 
 	def _on_save(self) -> None:
 		lastname = (self.lastname_entry.get() or "").strip()
@@ -634,15 +714,15 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 
 		# Required: name + group only
 		if not lastname:
-			messagebox.showerror("Save patient", "Please enter a last name.", parent=self)
+			messagebox.showerror(tr("save_patient"), tr("save_patient_error_lastname"), parent=self)
 			return
 		if not firstname:
-			messagebox.showerror("Save patient", "Please enter a first name.", parent=self)
+			messagebox.showerror(tr("save_patient"), tr("save_patient_error_firstname"), parent=self)
 			return
 
 		group_id = self._display_to_group_id.get(group_display) if group_display else None
 		if not isinstance(group_id, int):
-			messagebox.showerror("Save patient", "Please select a treatment group.", parent=self)
+			messagebox.showerror(tr("save_patient"), tr("save_patient_error_group"), parent=self)
 			return
 
 		try:
@@ -660,19 +740,19 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 				birthday=birthday,
 			)
 		except Exception as e:
-			messagebox.showerror("Save patient", f"Invalid data: {e}", parent=self)
+			messagebox.showerror(tr("save_patient"), tr("save_patient_error_invalid", e), parent=self)
 			return
 
 		try:
 			result = PatAdmin.register(self._server_url, self._cookies, patient.to_payload())
 		except Exception as e:
-			messagebox.showerror("Save patient", f"Registration failed: {e}", parent=self)
+			messagebox.showerror(tr("save_patient"), tr("save_patient_error_registration", e), parent=self)
 			return
 
 		if not result.get("ok"):
 			status = result.get("status")
 			text = result.get("text")
-			messagebox.showerror("Save patient", f"Registration failed (status {status}).\n{text}", parent=self)
+			messagebox.showerror(tr("save_patient"), tr("save_patient_error_status", status, text), parent=self)
 			return
 
 		patient_id = result.get("patient_id")
@@ -684,7 +764,7 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 				pass
 
 		if not isinstance(patient_id, int):
-			messagebox.showinfo("Save patient", "Registration OK, but no patient ID was returned.", parent=self)
+			messagebox.showinfo(tr("save_patient"), tr("save_patient_success_no_id"), parent=self)
 			self.destroy()
 			return
 
@@ -699,7 +779,7 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 					base_url=self._server_url,
 				)
 			except Exception as e:
-				messagebox.showerror("Print", f"Patient was registered (ID {patient_id}), but printing failed: {e}", parent=self)
+				messagebox.showerror(tr("printing"), tr("print_error", patient_id, e), parent=self)
 				self.destroy()
 				return
 
@@ -735,6 +815,8 @@ class App(ctk.CTk):
 
 		self.app_state = load_saved_credentials()
 		self.settings = load_settings()
+
+		_translator.load_language(self.settings.language)
 
 		ctk.set_appearance_mode(self.settings.appearance_mode)
 		
@@ -826,28 +908,28 @@ class App(ctk.CTk):
 	def _build_menu(self) -> None:
 		menubar = Menu(self)
 		self._setup_menu = Menu(menubar, tearoff=0)
-		self._setup_menu.add_command(label="Server", command=self._setup_server, accelerator="Ctrl+Alt+S")
-		self._setup_menu.add_command(label="Login", command=self._setup_login, accelerator="Ctrl+Alt+L")
-		self._setup_menu.add_command(label="Concern", command=self._setup_concern, accelerator="Ctrl+Alt+C")
-		self._setup_menu.add_command(label="Details", command=self._setup_details, accelerator="Ctrl+Alt+D")
-		menubar.add_cascade(label="Setup", menu=self._setup_menu)
+		self._setup_menu.add_command(label=tr("server"), command=self._setup_server, accelerator="Ctrl+Alt+S")
+		self._setup_menu.add_command(label=tr("login"), command=self._setup_login, accelerator="Ctrl+Alt+L")
+		self._setup_menu.add_command(label=tr("concern"), command=self._setup_concern, accelerator="Ctrl+Alt+C")
+		self._setup_menu.add_command(label=tr("treatment"), command=self._setup_details, accelerator="Ctrl+Alt+D")
+		menubar.add_cascade(label=tr("setup"), menu=self._setup_menu)
 
 		# Options menu
 		self._options_menu = Menu(menubar, tearoff=0)
 		self._printing_var = tk.BooleanVar(value=bool(self.settings.printing_enabled))
 		self._auto_refresh_var = tk.BooleanVar(value=bool(self.settings.auto_refresh_enabled))
 		self._ecard_var = tk.BooleanVar(value=bool(self.settings.ecard_enabled))
-		self._options_menu.add_checkbutton(label="Printing", variable=self._printing_var, command=self._toggle_printing, accelerator="Ctrl+Alt+P")
-		self._options_menu.add_checkbutton(label="Auto refresh", variable=self._auto_refresh_var, command=self._toggle_auto_refresh, accelerator="Ctrl+Alt+R")
-		self._options_menu.add_checkbutton(label="Ecard reading", variable=self._ecard_var, command=self._toggle_ecard, accelerator="Ctrl+Alt+E")
-		menubar.add_cascade(label="Options", menu=self._options_menu)
+		self._options_menu.add_checkbutton(label=tr("printing"), variable=self._printing_var, command=self._toggle_printing, accelerator="Ctrl+Alt+P")
+		self._options_menu.add_checkbutton(label=tr("auto_refresh"), variable=self._auto_refresh_var, command=self._toggle_auto_refresh, accelerator="Ctrl+Alt+R")
+		self._options_menu.add_checkbutton(label=tr("ecard_reading"), variable=self._ecard_var, command=self._toggle_ecard, accelerator="Ctrl+Alt+E")
+		menubar.add_cascade(label=tr("options"), menu=self._options_menu)
 
 		# Display menu
 		self._display_menu = Menu(menubar, tearoff=0)
 		
 		# Fullscreen
 		self._fullscreen_var = tk.BooleanVar(value=bool(self.settings.fullscreen))
-		self._display_menu.add_checkbutton(label="Fullscreen", variable=self._fullscreen_var, command=self._toggle_fullscreen, accelerator="F11")
+		self._display_menu.add_checkbutton(label=tr("fullscreen"), variable=self._fullscreen_var, command=self._toggle_fullscreen, accelerator="F11")
 		self._display_menu.add_separator()
 
 		# Theme
@@ -855,21 +937,28 @@ class App(ctk.CTk):
 		self._theme_var = tk.StringVar(value=self.settings.theme)
 		for t in ["blue", "green", "dark-blue", "red", "violet"]:
 			self._theme_menu.add_radiobutton(label=t.title(), variable=self._theme_var, value=t, command=self._set_theme)
-		self._display_menu.add_cascade(label="Theme", menu=self._theme_menu)
+		self._display_menu.add_cascade(label=tr("theme"), menu=self._theme_menu)
 
 		# Appearance Mode
 		self._appearance_menu = Menu(self._display_menu, tearoff=0)
 		self._appearance_var = tk.StringVar(value=self.settings.appearance_mode)
 		for m in ["System", "Dark", "Light"]:
 			self._appearance_menu.add_radiobutton(label=m, variable=self._appearance_var, value=m, command=self._set_appearance_mode)
-		self._display_menu.add_cascade(label="Appearance Mode", menu=self._appearance_menu)
+		self._display_menu.add_cascade(label=tr("appearance_mode"), menu=self._appearance_menu)
 
-		menubar.add_cascade(label="Display", menu=self._display_menu)
+		# Language
+		self._language_menu = Menu(self._display_menu, tearoff=0)
+		self._language_var = tk.StringVar(value=self.settings.language)
+		for lang_code, lang_name in _translator.get_available_languages():
+			self._language_menu.add_radiobutton(label=lang_name, variable=self._language_var, value=lang_code, command=self._set_language)
+		self._display_menu.add_cascade(label=tr("language"), menu=self._language_menu)
+
+		menubar.add_cascade(label=tr("display"), menu=self._display_menu)
 
 		# Settings menu
 		self._settings_menu = Menu(menubar, tearoff=0)
-		self._settings_menu.add_command(label="Settings...", command=self._open_settings, accelerator="Ctrl+Alt+T")
-		menubar.add_cascade(label="Settings", menu=self._settings_menu)
+		self._settings_menu.add_command(label=tr("settings") + "...", command=self._open_settings, accelerator="Ctrl+Alt+T")
+		menubar.add_cascade(label=tr("settings"), menu=self._settings_menu)
 
 		self.config(menu=menubar)
 		self._bind_hotkeys()
@@ -936,19 +1025,33 @@ class App(ctk.CTk):
 		# Refresh content to update canvas colors etc. AND fetch fresh data
 		self._refresh_main_content(quiet=True, use_cache=False)
 
+	def _set_language(self) -> None:
+		lang = self._language_var.get()
+		if lang == self.settings.language:
+			return
+		self.settings.language = lang
+		_translator.load_language(lang)
+		try:
+			save_settings(self.settings)
+		except Exception:
+			pass
+		
+		self._build_menu()
+		self._build_main(use_cache=True)
+
 	def _toggle_printing(self) -> None:
 		self.settings.printing_enabled = bool(self._printing_var.get())
 		try:
 			save_settings(self.settings)
 		except Exception as e:
-			messagebox.showerror("Options", f"Could not save settings: {e}", parent=self)
+			messagebox.showerror(tr("options"), tr("options_save_error", e), parent=self)
 
 	def _toggle_auto_refresh(self) -> None:
 		self.settings.auto_refresh_enabled = bool(self._auto_refresh_var.get())
 		try:
 			save_settings(self.settings)
 		except Exception as e:
-			messagebox.showerror("Options", f"Could not save settings: {e}", parent=self)
+			messagebox.showerror(tr("options"), tr("options_save_error", e), parent=self)
 		self._schedule_auto_refresh()
 
 	def _toggle_ecard(self) -> None:
@@ -956,7 +1059,7 @@ class App(ctk.CTk):
 		try:
 			save_settings(self.settings)
 		except Exception as e:
-			messagebox.showerror("Options", f"Could not save settings: {e}", parent=self)
+			messagebox.showerror(tr("options"), tr("options_save_error", e), parent=self)
 
 	def _schedule_auto_refresh(self) -> None:
 		# Cancel existing schedule
@@ -1004,6 +1107,7 @@ class App(ctk.CTk):
 		new_settings.fullscreen = bool(self.settings.fullscreen)
 		new_settings.theme = str(self.settings.theme)
 		new_settings.appearance_mode = str(self.settings.appearance_mode)
+		new_settings.language = str(self.settings.language)
 		
 		self.settings = new_settings
 		# Update menu checkbox vars
@@ -1017,7 +1121,7 @@ class App(ctk.CTk):
 		try:
 			save_settings(self.settings)
 		except Exception as e:
-			messagebox.showerror("Settings", f"Could not save settings: {e}", parent=self)
+			messagebox.showerror(tr("settings"), tr("options_save_error", e), parent=self)
 
 	def _build_main(self, use_cache: bool = False) -> None:
 		# Cleanup existing frames if rebuilding (e.g. theme change)
@@ -1097,27 +1201,27 @@ class App(ctk.CTk):
 			if hasattr(self, "_footer_status_label") and self._footer_status_label.winfo_exists():
 				server = (self.app_state.server_url or "").strip()
 				if not server:
-					status_text = "No Server"
+					status_text = tr("no_server")
 				elif not self.app_state.jsessionid:
-					status_text = f"{server} (Not Logged In)"
+					status_text = tr("not_logged_in_status", server)
 				elif not self._has_active_concern():
-					status_text = f"{server} (Logged In)"
+					status_text = tr("logged_in_status", server)
 				else:
-					status_text = f"{server} (Connected)"
+					status_text = tr("connected_status", server)
 				self._footer_status_label.configure(text=status_text)
 
 			# Footer countdown (right)
 			if hasattr(self, "_footer_label") and self._footer_label.winfo_exists():
 				if not self.settings.auto_refresh_enabled:
-					self._footer_label.configure(text="Paused")
+					self._footer_label.configure(text=tr("paused"))
 				elif not self._has_active_concern():
-					self._footer_label.configure(text="Paused (No Concern)")
+					self._footer_label.configure(text=tr("paused_no_concern"))
 				elif self._next_refresh_time:
 					remaining = (self._next_refresh_time - now).total_seconds()
 					if remaining > 0:
-						self._footer_label.configure(text=f"Refresh in {int(remaining)}s")
+						self._footer_label.configure(text=tr("refresh_in", int(remaining)))
 					else:
-						self._footer_label.configure(text="Refreshing...")
+						self._footer_label.configure(text=tr("refreshing"))
 				else:
 					self._footer_label.configure(text="")
 
@@ -1225,7 +1329,7 @@ class App(ctk.CTk):
 		if not server:
 			ctk.CTkLabel(
 				self._content_frame,
-				text="No server set. Use Setup → Server.",
+				text=tr("no_server_set"),
 				anchor="center",
 			).grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
 			return
@@ -1233,7 +1337,7 @@ class App(ctk.CTk):
 		if not self.app_state.jsessionid:
 			ctk.CTkLabel(
 				self._content_frame,
-				text="Not logged in. Use Setup → Login.",
+				text=tr("not_logged_in"),
 				anchor="center",
 			).grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
 			return
@@ -1242,7 +1346,7 @@ class App(ctk.CTk):
 		if not self._has_active_concern():
 			ctk.CTkLabel(
 				self._content_frame,
-				text="No concern selected. Use Setup → Concern.",
+				text=tr("no_concern_selected"),
 				anchor="center",
 			).grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
 			return
@@ -1264,7 +1368,7 @@ class App(ctk.CTk):
 					groups = self._cached_groups
 					counts = self._cached_counts
 				elif not quiet:
-					messagebox.showerror("Groups", f"Could not load treatment groups: {e}", parent=self)
+					messagebox.showerror(tr("treatment_group"), tr("groups_error", e), parent=self)
 					return
 				else:
 					return
@@ -1296,7 +1400,7 @@ class App(ctk.CTk):
 		# Placed outside scroll frame (Row 0)
 		ctk.CTkButton(
 			self._content_frame,
-			text="Register new Patient",
+			text=tr("register_new_patient"),
 			height=40,
 			font=ctk.CTkFont(size=16, weight="bold"),
 			command=lambda: self._open_register(None, ""),
@@ -1347,7 +1451,7 @@ class App(ctk.CTk):
 
 			btn = ctk.CTkButton(
 				row,
-				text=f"Register new Patient at {gname}",
+				text=tr("register_new_patient_at", gname),
 				command=lambda gid=gid, name=gname: self._open_register(gid, name),
 				width=260,
 			)
@@ -1355,7 +1459,7 @@ class App(ctk.CTk):
 
 	def _open_register(self, group_id: int | None, group_display: str) -> None:
 		if not self._has_active_concern():
-			messagebox.showerror("Register", "Please log in and select a concern first.", parent=self)
+			messagebox.showerror(tr("register_new_patient"), tr("register_error_login"), parent=self)
 			return
 
 		choices = list(self._group_display_to_id.keys())
@@ -1398,11 +1502,11 @@ class App(ctk.CTk):
 		server = self.app_state.server_url.strip() if self.app_state.server_url else ""
 		user = self.app_state.username.strip() if self.app_state.username else ""
 		if self.app_state.jsessionid and self.app_state.cookies:
-			login_text = "OK"
+			login_text = tr("ok")
 		elif self.app_state.jsessionid and not self.app_state.cookies:
-			login_text = "OK (no concern selected)"
+			login_text = tr("ok") + " (" + tr("no_concern_selected") + ")"
 		else:
-			login_text = "Not logged in"
+			login_text = tr("not_logged_in")
 
 		dlg = DetailsDialog(
 			self,
@@ -1424,12 +1528,12 @@ class App(ctk.CTk):
 		try:
 			save_server_only(value)
 		except OSError as e:
-			messagebox.showerror("Server", f"Could not save server URL: {e}", parent=self)
+			messagebox.showerror(tr("server"), tr("server_save_error", e), parent=self)
 		self._refresh_status()
 
 	def _setup_login(self) -> None:
 		if not self.app_state.server_url:
-			messagebox.showerror("Login", "Please set the server URL first (Setup → Server).", parent=self)
+			messagebox.showerror(tr("login"), tr("no_server_set"), parent=self)
 			return
 
 		dialog = LoginDialog(
@@ -1457,7 +1561,7 @@ class App(ctk.CTk):
 		try:
 			jsessionid = coceso_login(self.app_state.server_url, username, password)
 			if not jsessionid:
-				messagebox.showerror("Login", "Login failed (credentials rejected or server error).", parent=self)
+				messagebox.showerror(tr("login"), tr("login_failed_creds"), parent=self)
 				return
 
 			# Do NOT set a concern automatically; user must choose via Setup -> Concern
@@ -1466,7 +1570,7 @@ class App(ctk.CTk):
 			self.app_state.active_concern_name = None
 
 		except Exception as e:
-			messagebox.showerror("Login", f"Login failed: {e}", parent=self)
+			messagebox.showerror(tr("login"), tr("login_failed", e), parent=self)
 			return
 		finally:
 			self._refresh_status()
@@ -1475,27 +1579,27 @@ class App(ctk.CTk):
 			try:
 				save_credentials(self.app_state.server_url, username)
 			except OSError as e:
-				messagebox.showerror("Login", f"Could not save credentials: {e}", parent=self)
+				messagebox.showerror(tr("login"), tr("credentials_save_error", e), parent=self)
 
-		messagebox.showinfo("Login", "Login successful.", parent=self)
+		messagebox.showinfo(tr("login"), tr("login_success"), parent=self)
 
 	def _setup_concern(self) -> None:
 		if not self.app_state.server_url:
-			messagebox.showerror("Concern", "Please set the server URL first (Setup → Server).", parent=self)
+			messagebox.showerror(tr("concern"), tr("no_server_set"), parent=self)
 			return
 		if not self.app_state.jsessionid:
-			messagebox.showerror("Concern", "Please log in first (Setup → Login).", parent=self)
+			messagebox.showerror(tr("concern"), tr("not_logged_in"), parent=self)
 			return
 
 		try:
 			concerns = get_concerns(self.app_state.server_url, self.app_state.jsessionid)
 		except Exception as e:
-			messagebox.showerror("Concern", f"Could not load concerns: {e}", parent=self)
+			messagebox.showerror(tr("concern"), tr("concern_load_error", e), parent=self)
 			return
 
 		open_concerns = [c for c in concerns if isinstance(c, dict) and c.get("closed") is False]
 		if not open_concerns:
-			messagebox.showerror("Concern", "No open concerns returned by server.", parent=self)
+			messagebox.showerror(tr("concern"), tr("concern_no_open"), parent=self)
 			return
 
 		initial_concern_id: int | None = None
@@ -1518,15 +1622,15 @@ class App(ctk.CTk):
 			self.app_state.cookies = cookies
 			self.app_state.active_concern_name = concern_name
 			self._refresh_status()
-			messagebox.showinfo("Concern", f"Concern set to {concern_name}.", parent=self)
+			messagebox.showinfo(tr("concern"), tr("concern_set", concern_name), parent=self)
 		except Exception as e:
-			messagebox.showerror("Concern", f"Could not set concern: {e}", parent=self)
+			messagebox.showerror(tr("concern"), tr("concern_set_error", e), parent=self)
 
 
 class SettingsDialog(ctk.CTkToplevel):
 	def __init__(self, master: ctk.CTk, *, settings: AppSettings):
 		super().__init__(master)
-		self.title("Settings")
+		self.title(tr("settings_title"))
 		self.resizable(False, False)
 		self.protocol("WM_DELETE_WINDOW", self._on_cancel)
 
@@ -1535,8 +1639,8 @@ class SettingsDialog(ctk.CTkToplevel):
 
 		self.grid_columnconfigure(0, weight=1)
 
-		ctk.CTkLabel(self, text="Printer (ESC/POS only)").grid(row=0, column=0, padx=12, pady=(12, 6), sticky="w")
-		ctk.CTkLabel(self, text="Only ESC/POS receipt printers are supported.").grid(row=1, column=0, padx=12, pady=(0, 8), sticky="w")
+		ctk.CTkLabel(self, text=tr("printer_escpos")).grid(row=0, column=0, padx=12, pady=(12, 6), sticky="w")
+		ctk.CTkLabel(self, text=tr("printer_escpos_hint")).grid(row=1, column=0, padx=12, pady=(0, 8), sticky="w")
 
 		printers = self._list_printers_windows()
 		self.printer_var = ctk.StringVar(value=current.printer_name)
@@ -1547,15 +1651,15 @@ class SettingsDialog(ctk.CTkToplevel):
 		except Exception:
 			pass
 
-		ctk.CTkLabel(self, text="Refresh interval (seconds)").grid(row=3, column=0, padx=12, pady=(0, 6), sticky="w")
+		ctk.CTkLabel(self, text=tr("refresh_interval")).grid(row=3, column=0, padx=12, pady=(0, 6), sticky="w")
 		self.refresh_entry = ctk.CTkEntry(self, width=120)
 		self.refresh_entry.grid(row=4, column=0, padx=12, pady=(0, 12), sticky="w")
 		self.refresh_entry.insert(0, str(int(current.refresh_interval_sec)))
 
 		btns = ctk.CTkFrame(self, fg_color="transparent")
 		btns.grid(row=5, column=0, padx=12, pady=(0, 12), sticky="e")
-		ctk.CTkButton(btns, text="Cancel", command=self._on_cancel).pack(side="right")
-		ctk.CTkButton(btns, text="OK", command=self._on_ok).pack(side="right", padx=(0, 8))
+		ctk.CTkButton(btns, text=tr("cancel"), command=self._on_cancel).pack(side="right")
+		ctk.CTkButton(btns, text=tr("ok"), command=self._on_ok).pack(side="right", padx=(0, 8))
 
 		# Hotkeys
 		self.bind("<Return>", lambda _e: self._on_ok())
@@ -1590,15 +1694,15 @@ class SettingsDialog(ctk.CTkToplevel):
 	def _on_ok(self) -> None:
 		printer = (self.printer_var.get() or "").strip()
 		if not printer:
-			messagebox.showerror("Settings", "Please select a printer.", parent=self)
+			messagebox.showerror(tr("settings_title"), tr("settings_error_printer"), parent=self)
 			return
 		try:
 			interval = int((self.refresh_entry.get() or "").strip())
 		except Exception:
-			messagebox.showerror("Settings", "Refresh interval must be a number (seconds).", parent=self)
+			messagebox.showerror(tr("settings_title"), tr("settings_error_interval_number"), parent=self)
 			return
 		if interval < 2:
-			messagebox.showerror("Settings", "Refresh interval must be at least 2 seconds.", parent=self)
+			messagebox.showerror(tr("settings_title"), tr("settings_error_interval_min"), parent=self)
 			return
 
 		self._value = AppSettings(
@@ -1606,6 +1710,7 @@ class SettingsDialog(ctk.CTkToplevel):
 			auto_refresh_enabled=True,  # toggled via Options menu
 			refresh_interval_sec=interval,
 			printer_name=printer,
+			language=settings.language,
 		)
 		self.destroy()
 
