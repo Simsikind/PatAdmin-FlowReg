@@ -994,6 +994,10 @@ class App(ctk.CTk):
 		# Footer
 		self._footer_frame = ctk.CTkFrame(self, height=24, corner_radius=0, fg_color="transparent")
 		self._footer_frame.grid(row=2, column=0, sticky="ew")
+		
+		self._footer_status_label = ctk.CTkLabel(self._footer_frame, text="", font=ctk.CTkFont(size=12), text_color="gray")
+		self._footer_status_label.pack(side="left", padx=16, pady=(0, 5))
+		
 		self._footer_label = ctk.CTkLabel(self._footer_frame, text="", font=ctk.CTkFont(size=12), text_color="gray")
 		self._footer_label.pack(side="right", padx=16, pady=(0, 5))
 
@@ -1023,7 +1027,20 @@ class App(ctk.CTk):
 			if hasattr(self, "_header_label") and self._header_label.winfo_exists():
 				self._header_label.configure(text=text)
 
-			# Footer countdown
+			# Footer status (left)
+			if hasattr(self, "_footer_status_label") and self._footer_status_label.winfo_exists():
+				server = (self.app_state.server_url or "").strip()
+				if not server:
+					status_text = "No Server"
+				elif not self.app_state.jsessionid:
+					status_text = f"{server} (Not Logged In)"
+				elif not self._has_active_concern():
+					status_text = f"{server} (Logged In)"
+				else:
+					status_text = f"{server} (Connected)"
+				self._footer_status_label.configure(text=status_text)
+
+			# Footer countdown (right)
 			if hasattr(self, "_footer_label") and self._footer_label.winfo_exists():
 				if not self.settings.auto_refresh_enabled:
 					self._footer_label.configure(text="Paused")
