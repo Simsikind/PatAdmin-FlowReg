@@ -1630,6 +1630,7 @@ class App(ctk.CTk):
 class SettingsDialog(ctk.CTkToplevel):
 	def __init__(self, master: ctk.CTk, *, settings: AppSettings):
 		super().__init__(master)
+		self.settings = settings or AppSettings()
 		self.title(tr("settings_title"))
 		self.resizable(False, False)
 		self.protocol("WM_DELETE_WINDOW", self._on_cancel)
@@ -1706,11 +1707,15 @@ class SettingsDialog(ctk.CTkToplevel):
 			return
 
 		self._value = AppSettings(
-			printing_enabled=True,  # toggled via Options menu
-			auto_refresh_enabled=True,  # toggled via Options menu
+			printing_enabled=self.settings.printing_enabled,
+			auto_refresh_enabled=self.settings.auto_refresh_enabled,
+			ecard_enabled=self.settings.ecard_enabled,
 			refresh_interval_sec=interval,
 			printer_name=printer,
-			language=settings.language,
+			fullscreen=self.settings.fullscreen,
+			theme=self.settings.theme,
+			appearance_mode=self.settings.appearance_mode,
+			language=self.settings.language,
 		)
 		self.destroy()
 
