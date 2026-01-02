@@ -134,6 +134,17 @@ def main():
         if result.get('location'):
             print(f"Redirect Location: {result.get('location')}")
 
+        # Verify we can find the patient by name
+        print(f"Looking up patient ID for '{test_patient.lastname}'...")
+        try:
+            found_id = PatAdmin.get_patient_id_by_name(url, cookies, test_patient.lastname)
+            if found_id:
+                print(f"Found Patient ID by name: {found_id}")
+            else:
+                print(f"Could not find patient ID for name '{test_patient.lastname}'")
+        except Exception as e:
+            print(f"Error looking up patient by name: {e}")
+
         # Count again after registration
         try:
             after_count = PatAdmin.get_patient_count_in_group(url, cookies, group_id)

@@ -189,3 +189,49 @@ def get_patient_count_in_group(
         return 0
 
     return sum(1 for p in patients if isinstance(p, dict) and p.get("group") == group_id)
+
+
+def get_patient_id_by_name(
+    base_url: str,
+    cookies: dict[str, str],
+    name: str,
+    *,
+    timeout: int = 15,
+) -> int | None:
+    """
+    Searches for a patient by name (lastname) and returns their ID.
+    Returns the first matching patient's ID, or None if not found.
+    """
+    base_url = base_url.rstrip("/") + "/"
+    endpoint = urljoin(base_url, "data/patadmin/registration/patients")
+
+    cookies = dict(cookies or {})
+    _require_cookie(cookies, "JSESSIONID")
+    _require_cookie(cookies, "concern")
+
+    # Search by lastname
+    params = {"f": "lastname", "q": name}
+
+    resp = requests.get(endpoint, params=params, cookies=cookies, timeout=timeout)
+    resp.raise_for_status()
+
+    payload: Any = resp.json()
+    patients: Any = payload.get("data") if isinstance(payload, dict) and "data" in payload else payload
+
+    if not isinstance(patients, list):
+        return None
+
+    found_ids = []
+    for p in patients:
+        if isinstance(p, dict):
+            pid = p.get("id")
+            if pid is not None:
+                try:
+                    found_ids.append(int(pid))
+                except (ValueError, TypeError):
+                    continue
+
+    if found_ids:
+        return max(found_ids)
+
+    return None

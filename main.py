@@ -14,6 +14,7 @@ import requests
 from login import coceso_login, get_concerns, set_active_concern
 import Patadmin_communication as PatAdmin
 import print as print_util
+import ecard
 from Patient import Patient
 
 
@@ -31,6 +32,7 @@ class AppState:
 class AppSettings:
 	printing_enabled: bool = True
 	auto_refresh_enabled: bool = True
+	ecard_enabled: bool = True
 	refresh_interval_sec: int = 10
 	printer_name: str = "Generic / Text Only"
 	fullscreen: bool = False
@@ -62,6 +64,7 @@ def load_settings() -> AppSettings:
 	if isinstance(data, dict):
 		settings.printing_enabled = bool(data.get("printing_enabled", settings.printing_enabled))
 		settings.auto_refresh_enabled = bool(data.get("auto_refresh_enabled", settings.auto_refresh_enabled))
+		settings.ecard_enabled = bool(data.get("ecard_enabled", settings.ecard_enabled))
 		try:
 			settings.refresh_interval_sec = int(data.get("refresh_interval_sec", settings.refresh_interval_sec))
 		except Exception:
@@ -91,6 +94,7 @@ def save_settings(settings: AppSettings) -> None:
 	data = {
 		"printing_enabled": bool(settings.printing_enabled),
 		"auto_refresh_enabled": bool(settings.auto_refresh_enabled),
+		"ecard_enabled": bool(settings.ecard_enabled),
 		"refresh_interval_sec": int(settings.refresh_interval_sec),
 		"printer_name": str(settings.printer_name or "").strip(),
 		"fullscreen": bool(settings.fullscreen),
@@ -375,6 +379,7 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		cookies: dict[str, str],
 		printer_name: str,
 		printing_enabled: bool,
+		ecard_enabled: bool,
 		group_choices: list[str],
 		display_to_group_id: dict[str, int],
 		prefill_group_display: str,
@@ -389,6 +394,7 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		self._display_to_group_id = dict(display_to_group_id or {})
 		self._printer_name = (printer_name or "").strip() or "Generic / Text Only"
 		self._printing_enabled = bool(printing_enabled)
+		self._ecard_enabled = bool(ecard_enabled)
 		self._birth_mode: str = "picker"
 
 		self.grid_columnconfigure(0, weight=1)
@@ -435,33 +441,41 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		self.sex_box.grid(row=3, column=2, padx=(0, 0), pady=(0, 14), sticky="ew")
 		self._setup_combobox_cycling(self.sex_box)
 
+		# Read Ecard Button
+		self.ecard_btn = ctk.CTkButton(form, text="Read Ecard", command=self._on_read_ecard)
+		self.ecard_btn.grid(
+			row=4, column=0, columnspan=3, padx=(0, 0), pady=(0, 14), sticky="ew"
+		)
+		if not self._ecard_enabled:
+			self.ecard_btn.configure(state="disabled")
+
 		# Section: Treatment
 		ctk.CTkLabel(form, text="Treatment", font=ctk.CTkFont(size=22, weight="bold"), anchor="w").grid(
-			row=4, column=0, columnspan=3, padx=(0, 0), pady=(0, 8), sticky="w"
+			row=5, column=0, columnspan=3, padx=(0, 0), pady=(0, 8), sticky="w"
 		)
 		sep = ctk.CTkFrame(form, height=2)
-		sep.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(0, 14))
+		sep.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(0, 14))
 
-		ctk.CTkLabel(form, text="Treatment group", anchor="w").grid(row=6, column=0, padx=(0, 10), pady=(0, 4), sticky="w")
+		ctk.CTkLabel(form, text="Treatment group", anchor="w").grid(row=7, column=0, padx=(0, 10), pady=(0, 4), sticky="w")
 		self.group_var = ctk.StringVar(value=prefill_group_display or "")
 		values = [""] + list(group_choices or [])
 		self.group_menu = ctk.CTkComboBox(form, values=values, variable=self.group_var, state="readonly")
-		self.group_menu.grid(row=7, column=0, padx=(0, 10), pady=(0, 14), sticky="ew")
+		self.group_menu.grid(row=8, column=0, padx=(0, 10), pady=(0, 14), sticky="ew")
 		self._setup_combobox_cycling(self.group_menu)
 
 		# Diagnosis / Info / NACA
-		ctk.CTkLabel(form, text="Diagnosis", anchor="w").grid(row=8, column=0, padx=(0, 10), pady=(0, 4), sticky="w")
-		ctk.CTkLabel(form, text="Info", anchor="w").grid(row=8, column=1, padx=(0, 10), pady=(0, 4), sticky="w")
-		ctk.CTkLabel(form, text="NACA", anchor="w").grid(row=8, column=2, padx=(0, 0), pady=(0, 4), sticky="w")
+		ctk.CTkLabel(form, text="Diagnosis", anchor="w").grid(row=9, column=0, padx=(0, 10), pady=(0, 4), sticky="w")
+		ctk.CTkLabel(form, text="Info", anchor="w").grid(row=9, column=1, padx=(0, 10), pady=(0, 4), sticky="w")
+		ctk.CTkLabel(form, text="NACA", anchor="w").grid(row=9, column=2, padx=(0, 0), pady=(0, 4), sticky="w")
 
 		self.diagnosis_text = ctk.CTkTextbox(form, height=90)
 		self.info_text = ctk.CTkTextbox(form, height=90)
 		self.naca_var = ctk.StringVar(value="I")
 		self.naca_menu = ctk.CTkComboBox(form, values=["I", "II", "III", "IV", "V", "VI", "VII"], variable=self.naca_var, state="readonly")
 
-		self.diagnosis_text.grid(row=9, column=0, padx=(0, 10), pady=(0, 14), sticky="nsew")
-		self.info_text.grid(row=9, column=1, padx=(0, 10), pady=(0, 14), sticky="nsew")
-		self.naca_menu.grid(row=9, column=2, padx=(0, 0), pady=(0, 14), sticky="nw")
+		self.diagnosis_text.grid(row=10, column=0, padx=(0, 10), pady=(0, 14), sticky="nsew")
+		self.info_text.grid(row=10, column=1, padx=(0, 10), pady=(0, 14), sticky="nsew")
+		self.naca_menu.grid(row=10, column=2, padx=(0, 0), pady=(0, 14), sticky="nw")
 		self._setup_combobox_cycling(self.naca_menu)
 
 		# Fix tab traversal for textboxes
@@ -470,7 +484,7 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 
 		# Buttons
 		btns = ctk.CTkFrame(form, fg_color="transparent")
-		btns.grid(row=10, column=0, columnspan=3, sticky="w", pady=(0, 10))
+		btns.grid(row=11, column=0, columnspan=3, sticky="w", pady=(0, 10))
 		ctk.CTkButton(btns, text="Save patient", command=self._on_save).pack(side="left", padx=(0, 10))
 		ctk.CTkButton(btns, text="Close", command=self.destroy).pack(side="left")
 
@@ -479,6 +493,9 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		self.bind("<Control-s>", lambda _e: self._on_save())
 		self.bind("<Control-S>", lambda _e: self._on_save())
 		self.bind("<Return>", lambda _e: self._on_save())
+		if self._ecard_enabled:
+			self.bind("<Control-e>", lambda _e: self._on_read_ecard())
+			self.bind("<Control-E>", lambda _e: self._on_read_ecard())
 
 		self._setup_focus_highlight()
 		self.after(50, self.lastname_entry.focus_set)
@@ -564,6 +581,36 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 				return f"{yyyy}-{mm}-{dd}"
 		return raw
 
+	def _on_read_ecard(self) -> None:
+		try:
+			lastname, firstname, birthday, insurance, sex = ecard.read_data()
+			
+			self.lastname_entry.delete(0, "end")
+			self.lastname_entry.insert(0, lastname)
+			
+			self.firstname_entry.delete(0, "end")
+			self.firstname_entry.insert(0, firstname)
+			
+			self.svnr_entry.delete(0, "end")
+			self.svnr_entry.insert(0, insurance)
+			
+			if self._birth_mode == "picker":
+				try:
+					self.birth_picker.set_date(birthday)
+				except Exception:
+					pass
+			else:
+				self.birth_entry.delete(0, "end")
+				self.birth_entry.insert(0, birthday)
+
+			if sex in ["Male", "Female"]:
+				self.sex_var.set(sex)
+			else:
+				self.sex_var.set("None/Other")
+
+		except Exception as e:
+			messagebox.showerror("Read Ecard", f"Could not read e-card: {e}", parent=self)
+
 	def _on_save(self) -> None:
 		lastname = (self.lastname_entry.get() or "").strip()
 		firstname = (self.firstname_entry.get() or "").strip()
@@ -629,6 +676,13 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 			return
 
 		patient_id = result.get("patient_id")
+		if not isinstance(patient_id, int):
+			# Fallback: try to find patient by name
+			try:
+				patient_id = PatAdmin.get_patient_id_by_name(self._server_url, self._cookies, lastname)
+			except Exception:
+				pass
+
 		if not isinstance(patient_id, int):
 			messagebox.showinfo("Save patient", "Registration OK, but no patient ID was returned.", parent=self)
 			self.destroy()
@@ -782,8 +836,10 @@ class App(ctk.CTk):
 		self._options_menu = Menu(menubar, tearoff=0)
 		self._printing_var = tk.BooleanVar(value=bool(self.settings.printing_enabled))
 		self._auto_refresh_var = tk.BooleanVar(value=bool(self.settings.auto_refresh_enabled))
+		self._ecard_var = tk.BooleanVar(value=bool(self.settings.ecard_enabled))
 		self._options_menu.add_checkbutton(label="Printing", variable=self._printing_var, command=self._toggle_printing, accelerator="Ctrl+Alt+P")
 		self._options_menu.add_checkbutton(label="Auto refresh", variable=self._auto_refresh_var, command=self._toggle_auto_refresh, accelerator="Ctrl+Alt+R")
+		self._options_menu.add_checkbutton(label="Ecard reading", variable=self._ecard_var, command=self._toggle_ecard, accelerator="Ctrl+Alt+E")
 		menubar.add_cascade(label="Options", menu=self._options_menu)
 
 		# Display menu
@@ -828,6 +884,7 @@ class App(ctk.CTk):
 		# Options toggles
 		self.bind_all("<Control-Alt-p>", lambda _e: self._hotkey_toggle(self._printing_var, self._toggle_printing))
 		self.bind_all("<Control-Alt-r>", lambda _e: self._hotkey_toggle(self._auto_refresh_var, self._toggle_auto_refresh))
+		self.bind_all("<Control-Alt-e>", lambda _e: self._hotkey_toggle(self._ecard_var, self._toggle_ecard))
 
 		# Display toggles
 		self.bind_all("<F11>", lambda _e: self._hotkey_toggle(self._fullscreen_var, self._toggle_fullscreen))
@@ -894,6 +951,13 @@ class App(ctk.CTk):
 			messagebox.showerror("Options", f"Could not save settings: {e}", parent=self)
 		self._schedule_auto_refresh()
 
+	def _toggle_ecard(self) -> None:
+		self.settings.ecard_enabled = bool(self._ecard_var.get())
+		try:
+			save_settings(self.settings)
+		except Exception as e:
+			messagebox.showerror("Options", f"Could not save settings: {e}", parent=self)
+
 	def _schedule_auto_refresh(self) -> None:
 		# Cancel existing schedule
 		if self._auto_refresh_after_id is not None:
@@ -935,6 +999,7 @@ class App(ctk.CTk):
 		# Preserve toggles from Options menu
 		new_settings.printing_enabled = bool(self.settings.printing_enabled)
 		new_settings.auto_refresh_enabled = bool(self.settings.auto_refresh_enabled)
+		new_settings.ecard_enabled = bool(self.settings.ecard_enabled)
 		# Preserve Display settings
 		new_settings.fullscreen = bool(self.settings.fullscreen)
 		new_settings.theme = str(self.settings.theme)
@@ -945,6 +1010,7 @@ class App(ctk.CTk):
 		try:
 			self._printing_var.set(bool(self.settings.printing_enabled))
 			self._auto_refresh_var.set(bool(self.settings.auto_refresh_enabled))
+			self._ecard_var.set(bool(self.settings.ecard_enabled))
 		except Exception:
 			pass
 		self._schedule_auto_refresh()
@@ -1019,7 +1085,7 @@ class App(ctk.CTk):
 
 		try:
 			now = datetime.datetime.now()
-			date_str = now.strftime("%Y-%m-%d")
+			date_str = now.strftime("%d.%m.%Y")
 			time_str = now.strftime("%H:%M")
 			concern = self.app_state.active_concern_name or "No Concern"
 			
@@ -1299,6 +1365,7 @@ class App(ctk.CTk):
 			cookies=self.app_state.cookies or {},
 			printer_name=self.settings.printer_name,
 			printing_enabled=self.settings.printing_enabled,
+			ecard_enabled=self.settings.ecard_enabled,
 			group_choices=choices,
 			display_to_group_id=self._group_display_to_id,
 			prefill_group_display=(group_display if group_id is not None else ""),
