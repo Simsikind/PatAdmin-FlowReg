@@ -1,0 +1,9 @@
+{
+  "printing_enabled": true,
+  "auto_refresh_enabled": true,
+  "refresh_interval_sec": 10,
+  "printer_name": "Generic / Text Only",
+  "fullscreen": false,
+  "theme": "red",
+  "appearance_mode": "System"
+}

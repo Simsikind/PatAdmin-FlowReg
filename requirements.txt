@@ -1,0 +1,4 @@
+customtkinter
+requests
+tkcalendar
+python-escpos

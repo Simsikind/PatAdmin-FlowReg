@@ -4,7 +4,8 @@ Class for a Patient
 """
 
 class Patient:
-    ALLOWED_SEX = {"Male", "Female"}
+    # Empty string means "unspecified" (used for UI option None/Other)
+    ALLOWED_SEX = {"Male", "Female", ""}
     ALLOWED_NACA = {"I", "II", "III", "IV", "V", "VI", "VII"}
 
     def __init__(
@@ -12,6 +13,7 @@ class Patient:
         firstname: str,
         lastname: str,
         group_id: int,
+        group_name: str = "",
         external_id: str = "",
         naca: str = "I",
         sex: str = "Male",
@@ -23,6 +25,7 @@ class Patient:
         self.firstname = firstname
         self.lastname = lastname
         self.group_id = group_id
+        self.group_name = group_name
         self.external_id = external_id
 
         if sex not in self.ALLOWED_SEX:
@@ -45,12 +48,15 @@ class Patient:
             "group": self.group_id,
             "externalId": self.external_id,
             "naca": self.naca,
-            "sex": self.sex,
             "info": self.info,
             "diagnosis": self.diagnosis,
             "insurance": self.insurance,
             "birthday": self.birthday,
         }
+
+        # Only include sex when it is explicitly set.
+        if self.sex != "":
+            payload["sex"] = self.sex
         if add_new_flow:
             payload["addNew"] = "true"
         return payload

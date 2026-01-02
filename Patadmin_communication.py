@@ -75,3 +75,117 @@ def register(base_url: str, cookies: dict[str, str], payload: dict[str, Any], *,
         "location": location,
         "text": resp.text,
     }
+
+
+def get_treatment_groups(base_url: str, cookies: dict[str, str]) -> list[dict[str, Any]]:
+    """
+    Fetches all available treatment groups for the active concern.
+    Returns a list of group dictionaries (each having 'id', 'call', etc.).
+    """
+    base_url = base_url.rstrip("/") + "/"
+    endpoint = urljoin(base_url, "data/patadmin/registration/groups")
+
+    cookies = dict(cookies or {})
+    _require_cookie(cookies, "JSESSIONID")
+    _require_cookie(cookies, "concern")
+
+    resp = requests.get(endpoint, cookies=cookies, timeout=15)
+    resp.raise_for_status()
+    
+    data = resp.json()
+    # The server returns a SequencedResponse wrapper, the actual list is in 'data'
+    if isinstance(data, dict) and "data" in data:
+        return data["data"]
+    # Fallback if structure is different
+    return data
+
+
+def get_group_name_by_id(base_url: str, cookies: dict[str, str], group_id: int) -> str | None:
+    """
+    Returns the name (call sign) of a treatment group given its ID.
+    Returns None if not found.
+    """
+    try:
+        groups = get_treatment_groups(base_url, cookies)
+    except Exception:
+        return None
+
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+
+        gid = group.get("id")
+        if gid == group_id:
+            # CoCeSo group objects typically include a call sign in 'call'
+            name = group.get("call") or group.get("name")
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+            return None
+
+    return None
+
+
+def get_group_capacity(base_url: str, cookies: dict[str, str], group_id: int) -> int | None:
+    """Returns the maximum patient capacity for a treatment group.
+
+    Returns None if the group is not found or if no capacity is set.
+    """
+    try:
+        groups = get_treatment_groups(base_url, cookies)
+    except Exception:
+        return None
+
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        if group.get("id") == group_id:
+            cap = group.get("capacity")
+            if cap is None or cap == "":
+                return None
+            try:
+                return int(cap)
+            except Exception:
+                return None
+
+    return None
+
+
+def get_patient_count_in_group(
+    base_url: str,
+    cookies: dict[str, str],
+    group_id: int,
+    *,
+    timeout: int = 15,
+) -> int:
+    """Returns the number of active (not done) patients in a treatment group.
+
+    Uses the PatAdmin registration patients endpoint:
+      GET data/patadmin/registration/patients?f=lastname&q=
+
+    Note:
+    - CoCeSo typically filters out "done" (discharged) patients server-side for this endpoint,
+      so no extra filtering for active status is required here.
+    - Response may be either a list[dict] OR a wrapper object with a "data" field.
+    - The group id is in the JSON field "group".
+    """
+
+    base_url = base_url.rstrip("/") + "/"
+    endpoint = urljoin(base_url, "data/patadmin/registration/patients")
+
+    cookies = dict(cookies or {})
+    _require_cookie(cookies, "JSESSIONID")
+    _require_cookie(cookies, "concern")
+
+    # Empty query matches all active patients (backend uses like keyword% and filters done=false).
+    params = {"f": "lastname", "q": ""}
+
+    resp = requests.get(endpoint, params=params, cookies=cookies, timeout=timeout)
+    resp.raise_for_status()
+
+    payload: Any = resp.json()
+    patients: Any = payload.get("data") if isinstance(payload, dict) and "data" in payload else payload
+
+    if not isinstance(patients, list):
+        return 0
+
+    return sum(1 for p in patients if isinstance(p, dict) and p.get("group") == group_id)
