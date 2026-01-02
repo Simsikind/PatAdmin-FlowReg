@@ -2,3 +2,4 @@ login_credentials.txt
 __pycache__/
 *.pyc
 locales/*.joke.json
+app_settings.json
