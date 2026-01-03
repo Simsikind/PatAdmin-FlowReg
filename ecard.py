@@ -386,6 +386,35 @@ def _parse_grunddaten(blob: bytes) -> Dict[str, Any]:
 # Public API
 # --------------------------
 
+def is_card_present() -> bool:
+    """
+    Check if any connected reader has a card inserted.
+    Returns True if at least one reader has a card.
+    """
+    try:
+        r = readers()
+        if not r:
+            return False
+        for reader in r:
+            # pyscard readers usually have isCardPresent()
+            if hasattr(reader, "isCardPresent"):
+                if reader.isCardPresent():
+                    return True
+            else:
+                # Fallback: try to connect
+                try:
+                    conn = reader.createConnection()
+                    conn.connect()
+                    return True
+                except NoCardException:
+                    pass
+                except Exception:
+                    pass
+        return False
+    except Exception:
+        return False
+
+
 def read_data() -> tuple[str, str, str, str, str]:
     """
     Read offline data from an Austrian e-card.

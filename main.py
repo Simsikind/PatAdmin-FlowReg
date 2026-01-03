@@ -1,6 +1,8 @@
 import os
 import json
 import datetime
+import threading
+import time
 from dataclasses import dataclass
 from urllib.parse import urljoin
 import subprocess
@@ -463,6 +465,7 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		group_choices: list[str],
 		display_to_group_id: dict[str, int],
 		prefill_group_display: str,
+		auto_read: bool = False,
 	):
 		super().__init__(master)
 		self.title(tr("register_new_patient"))
@@ -580,6 +583,10 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 
 		self._setup_focus_highlight()
 		self.after(50, self.lastname_entry.focus_set)
+		
+		if auto_read and self._ecard_enabled:
+			self.after(200, self._on_read_ecard)
+
 		self.grab_set()
 		self.transient(master)
 
@@ -665,7 +672,7 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 	def _on_read_ecard(self) -> None:
 		try:
 			lastname, firstname, birthday, insurance, sex = ecard.read_data()
-			now_text = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+			now_text = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 			scan_line = f"e-card scan: {now_text}"
 			
 			self.lastname_entry.delete(0, "end")
@@ -863,6 +870,12 @@ class App(ctk.CTk):
 		self._clock_after_id: str | None = None
 		self._next_refresh_time: datetime.datetime | None = None
 		self._paused: bool = False
+		self._current_register_dialog: RegisterPatientDialog | None = None
+
+		# Start e-card monitor thread
+		self._ecard_thread_running = True
+		self._ecard_thread = threading.Thread(target=self._monitor_ecard_loop, daemon=True)
+		self._ecard_thread.start()
 
 		self._build_menu()
 		self._build_main()
@@ -1012,6 +1025,50 @@ class App(ctk.CTk):
 		# Global register (works when list is visible)
 		self.bind_all("<Control-n>", lambda _e: self._open_register(None, ""))
 		self.bind_all("<Control-N>", lambda _e: self._open_register(None, ""))
+
+	def _monitor_ecard_loop(self) -> None:
+		"""
+		Background thread to monitor for e-card insertion.
+		"""
+		was_present = False
+		while getattr(self, "_ecard_thread_running", True):
+			if not self.settings.ecard_enabled:
+				time.sleep(2.0)
+				continue
+
+			try:
+				present = ecard.is_card_present()
+				if present and not was_present:
+					# Card just inserted
+					self.after(0, self._on_card_inserted)
+				was_present = present
+			except Exception:
+				pass
+			
+			time.sleep(0.5)
+
+	def _on_card_inserted(self) -> None:
+		"""
+		Called on main thread when a card is detected.
+		"""
+		# If e-card is disabled in settings, do nothing
+		if not self.settings.ecard_enabled:
+			return
+
+		# If we are already in a register dialog, just bring it to front
+		if self._current_register_dialog and self._current_register_dialog.winfo_exists():
+			self._current_register_dialog.lift()
+			# self._current_register_dialog.focus_force() # Optional: force focus
+			return
+
+		# If we are not logged in or have no concern, we can't register properly,
+		# but maybe we should show a warning or just ignore?
+		# The _open_register method checks for login/concern and shows error if missing.
+		# So we can just call it.
+		
+		# We don't know which group to preselect, so pass None.
+		# Pass auto_read=False so it doesn't read immediately, just opens the form.
+		self._open_register(None, "", auto_read=False)
 
 	def _hotkey_toggle(self, var: tk.BooleanVar, fn) -> None:
 		try:
@@ -1485,7 +1542,7 @@ class App(ctk.CTk):
 			)
 			btn.grid(row=0, column=3, padx=(0, 10), pady=10, sticky="e")
 
-	def _open_register(self, group_id: int | None, group_display: str) -> None:
+	def _open_register(self, group_id: int | None, group_display: str, auto_read: bool = False) -> None:
 		if not self._has_active_concern():
 			messagebox.showerror(tr("register_new_patient"), tr("register_error_login"), parent=self)
 			return
@@ -1501,11 +1558,14 @@ class App(ctk.CTk):
 			group_choices=choices,
 			display_to_group_id=self._group_display_to_id,
 			prefill_group_display=(group_display if group_id is not None else ""),
+			auto_read=auto_read,
 		)
 		self._paused = True
+		self._current_register_dialog = dlg
 		try:
 			self.wait_window(dlg)
 		finally:
+			self._current_register_dialog = None
 			self._paused = False
 		# Refresh list after closing (patient counts/capacity may change)
 		self._refresh_main_content(quiet=True)
@@ -1653,6 +1713,10 @@ class App(ctk.CTk):
 			messagebox.showinfo(tr("concern"), tr("concern_set", concern_name), parent=self)
 		except Exception as e:
 			messagebox.showerror(tr("concern"), tr("concern_set_error", e), parent=self)
+
+	def destroy(self) -> None:
+		self._ecard_thread_running = False
+		super().destroy()
 
 
 class SettingsDialog(ctk.CTkToplevel):
