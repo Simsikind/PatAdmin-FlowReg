@@ -664,6 +664,8 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 	def _on_read_ecard(self) -> None:
 		try:
 			lastname, firstname, birthday, insurance, sex = ecard.read_data()
+			now_text = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+			scan_line = f"e-card scan: {now_text}"
 			
 			self.lastname_entry.delete(0, "end")
 			self.lastname_entry.insert(0, lastname)
@@ -694,6 +696,17 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 				self.sex_var.set("Female")
 			else:
 				self.sex_var.set("None/Other")
+
+			# Add scan timestamp to the Info field (without overwriting existing notes)
+			try:
+				current_info = (self.info_text.get("1.0", "end") or "").strip()
+			except Exception:
+				current_info = ""
+			if current_info:
+				self.info_text.insert("end", "\n" + scan_line)
+			else:
+				self.info_text.delete("1.0", "end")
+				self.info_text.insert("1.0", scan_line)
 
 		except Exception as e:
 			messagebox.showerror(tr("read_ecard"), tr("read_ecard_error", e), parent=self)
