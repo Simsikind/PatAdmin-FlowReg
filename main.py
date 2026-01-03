@@ -683,8 +683,15 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 				self.birth_entry.delete(0, "end")
 				self.birth_entry.insert(0, birthday)
 
-			if sex in ["Male", "Female"]:
-				self.sex_var.set(sex)
+			# ecard.read_data() normalizes sex to "Male"/"Female"/"".
+			# Keep a small fallback for older/edge reader outputs.
+			sex_norm = (sex or "").strip()
+			if sex_norm in ["Male", "Female"]:
+				self.sex_var.set(sex_norm)
+			elif sex_norm.upper() in {"M", "1"}:
+				self.sex_var.set("Male")
+			elif sex_norm.upper() in {"F", "2"}:
+				self.sex_var.set("Female")
 			else:
 				self.sex_var.set("None/Other")
 

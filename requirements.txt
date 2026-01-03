@@ -2,3 +2,5 @@ customtkinter
 requests
 tkcalendar
 python-escpos
+pyscard
+pywin32

@@ -63,6 +63,27 @@ The application stores minimal configuration data locally in the application dir
 - `app_settings.json`: Stores user preferences like Printer Name, Refresh Interval, Theme, and Fullscreen state.
 - `themes/`: Contains generated JSON theme files (e.g., `red.json`, `violet.json`) created by the application's theming engine.
 
+### eCard Reading (Offline)
+If enabled (see `app_settings.json` / Settings), the registration dialog includes a **Read eCard** button.
+
+What it does:
+- Uses a PC/SC smartcard reader to read the Austrian e-card **offline** (no server round-trip).
+- Selects the **SV Personendaten** application and reads **EF01 (Grunddaten)**.
+- Parses the DER/ASN.1 payload and extracts:
+    - Last name
+    - First name
+    - Date of birth (normalized to `YYYY-MM-DD`)
+    - SVNR / insurance number (10 digits, best-effort)
+    - Gender/sex (normalized; see below)
+
+Sex/gender normalization:
+- The e-card data may encode gender as `M/F/X` (and sometimes numeric codes).
+- The app normalizes this to the only values PatAdmin FlowReg sends to the backend: `Male`, `Female`, or empty (unspecified / “None/Other”).
+
+Notes:
+- Requires the Windows **Smart Card** service to be running and a working reader driver.
+- If no reader is found or no card is inserted, you’ll see an error dialog.
+
 ## How to Install
 
 ### Prerequisites
@@ -92,3 +113,5 @@ The application stores minimal configuration data locally in the application dir
 - **Requests:** HTTP library for API communication.
 - **tkcalendar:** Date picker widget (falls back to text entry if missing).
 - **pywin32:** Access to Windows print spooler API.
+- **pyscard:** PC/SC smartcard access for offline e-card reading (module name: `smartcard`).
+- **python-escpos:** ESC/POS printing (module name: `escpos`).

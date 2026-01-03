@@ -55,6 +55,24 @@ if !errorlevel! neq 0 (
     echo [OK] Package found: python-escpos
 )
 
+:: pyscard (import name: smartcard)
+python -c "import smartcard" >nul 2>&1
+if !errorlevel! neq 0 (
+    echo [X] Missing package: pyscard ^(import name: smartcard^)
+    set "MISSING_ITEMS=1"
+) else (
+    echo [OK] Package found: pyscard
+)
+
+:: pywin32 (import name: win32print)
+python -c "import win32print" >nul 2>&1
+if !errorlevel! neq 0 (
+    echo [X] Missing package: pywin32 ^(import name: win32print^)
+    set "MISSING_ITEMS=1"
+) else (
+    echo [OK] Package found: pywin32
+)
+
 :Result
 echo.
 if "!MISSING_ITEMS!"=="1" (
