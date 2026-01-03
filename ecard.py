@@ -425,6 +425,10 @@ def read_data() -> tuple[str, str, str, str, str]:
     firstname = str(parsed.get("given_name") or "")
     birthday = str(parsed.get("birthdate_iso") or "")
     insurance = str(parsed.get("svnr") or "")
+    # Format as xxxx/ddmmyy if 10 digits
+    if len(insurance) == 10 and insurance.isdigit():
+        insurance = f"{insurance[:4]}/{insurance[4:]}"
+
     sex = _normalize_sex(parsed.get("gender"))
 
     return (lastname, firstname, birthday, insurance, sex)

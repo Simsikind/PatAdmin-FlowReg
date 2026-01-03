@@ -504,6 +504,7 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 
 		self.svnr_entry = ctk.CTkEntry(form)
 		self.svnr_entry.grid(row=3, column=0, padx=(0, 10), pady=(0, 14), sticky="ew")
+		self.svnr_entry.bind("<FocusOut>", self._format_svnr)
 		# Date picker (tkcalendar). Falls back to plain entry if tkcalendar isn't installed.
 		try:
 			from tkcalendar import DateEntry  # type: ignore
@@ -710,6 +711,13 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 
 		except Exception as e:
 			messagebox.showerror(tr("read_ecard"), tr("read_ecard_error", e), parent=self)
+
+	def _format_svnr(self, _event=None) -> None:
+		val = (self.svnr_entry.get() or "").strip()
+		if len(val) == 10 and val.isdigit():
+			formatted = f"{val[:4]}/{val[4:]}"
+			self.svnr_entry.delete(0, "end")
+			self.svnr_entry.insert(0, formatted)
 
 	def _on_save(self) -> None:
 		lastname = (self.lastname_entry.get() or "").strip()
