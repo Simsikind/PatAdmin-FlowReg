@@ -669,6 +669,28 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 				return f"{yyyy}-{mm}-{dd}"
 		return raw
 
+	def _show_notification(self, message: str, duration: int = 3000) -> None:
+		popup = ctk.CTkToplevel(self)
+		popup.overrideredirect(True)
+		popup.attributes("-topmost", True)
+		
+		# Frame with background color
+		frame = ctk.CTkFrame(popup, fg_color=("green", "green"), corner_radius=10)
+		frame.pack(expand=True, fill="both")
+		
+		label = ctk.CTkLabel(frame, text=message, padx=20, pady=20, text_color="white", font=ctk.CTkFont(size=16, weight="bold"))
+		label.pack()
+		
+		# Center on parent
+		popup.update_idletasks()
+		w = popup.winfo_reqwidth()
+		h = popup.winfo_reqheight()
+		x = self.winfo_rootx() + (self.winfo_width() - w) // 2
+		y = self.winfo_rooty() + (self.winfo_height() - h) // 2
+		popup.geometry(f"{w}x{h}+{x}+{y}")
+		
+		popup.after(duration, popup.destroy)
+
 	def _on_read_ecard(self) -> None:
 		try:
 			lastname, firstname, birthday, insurance, sex = ecard.read_data()
@@ -704,6 +726,8 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 				self.sex_var.set("Female")
 			else:
 				self.sex_var.set("None/Other")
+
+			self._show_notification(tr("read_ecard_success_remove"))
 
 			# Add scan timestamp to the Info field (without overwriting existing notes)
 			try:
@@ -820,24 +844,11 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 
 		# Notification instead of dialog
 		try:
-			import subprocess
 			title = f"{lastname}, {firstname}"
 			body = f"{group_display} & {naca}"
-			# Escape for PowerShell
-			safe_title = title.replace('"', "'").replace('$', '`$')
-			safe_body = body.replace('"', "'").replace('$', '`$')
-			
-			ps_script = f"""
-			[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
-			$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
-			$textNodes = $template.GetElementsByTagName("text")
-			$textNodes.item(0).AppendChild($template.CreateTextNode("{safe_title}")) > $null
-			$textNodes.item(1).AppendChild($template.CreateTextNode("{safe_body}")) > $null
-			$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("PatAdmin FlowReg")
-			$notification = [Windows.UI.Notifications.ToastNotification]::new($template)
-			$notifier.Show($notification)
-			"""
-			subprocess.Popen(["powershell", "-NoProfile", "-Command", ps_script], creationflags=0x08000000) # CREATE_NO_WINDOW
+			message = f"{title}\n{body}"
+			if hasattr(self.master, "_show_notification"):
+				self.master._show_notification(message)
 		except Exception:
 			pass
 
@@ -872,15 +883,32 @@ class App(ctk.CTk):
 		self._paused: bool = False
 		self._current_register_dialog: RegisterPatientDialog | None = None
 
-		# Start e-card monitor thread
-		self._ecard_thread_running = True
-		self._ecard_thread = threading.Thread(target=self._monitor_ecard_loop, daemon=True)
-		self._ecard_thread.start()
-
 		self._build_menu()
 		self._build_main()
 		self._refresh_status()
 		self._schedule_auto_refresh()
+
+	def _show_notification(self, message: str, duration: int = 3000) -> None:
+		popup = ctk.CTkToplevel(self)
+		popup.overrideredirect(True)
+		popup.attributes("-topmost", True)
+		
+		# Frame with background color
+		frame = ctk.CTkFrame(popup, fg_color=("green", "green"), corner_radius=10)
+		frame.pack(expand=True, fill="both")
+		
+		label = ctk.CTkLabel(frame, text=message, padx=20, pady=20, text_color="white", font=ctk.CTkFont(size=16, weight="bold"))
+		label.pack()
+		
+		# Center on parent
+		popup.update_idletasks()
+		w = popup.winfo_reqwidth()
+		h = popup.winfo_reqheight()
+		x = self.winfo_rootx() + (self.winfo_width() - w) // 2
+		y = self.winfo_rooty() + (self.winfo_height() - h) // 2
+		popup.geometry(f"{w}x{h}+{x}+{y}")
+		
+		popup.after(duration, popup.destroy)
 
 	def _ensure_custom_themes(self) -> None:
 		theme_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "themes")
@@ -1025,50 +1053,6 @@ class App(ctk.CTk):
 		# Global register (works when list is visible)
 		self.bind_all("<Control-n>", lambda _e: self._open_register(None, ""))
 		self.bind_all("<Control-N>", lambda _e: self._open_register(None, ""))
-
-	def _monitor_ecard_loop(self) -> None:
-		"""
-		Background thread to monitor for e-card insertion.
-		"""
-		was_present = False
-		while getattr(self, "_ecard_thread_running", True):
-			if not self.settings.ecard_enabled:
-				time.sleep(2.0)
-				continue
-
-			try:
-				present = ecard.is_card_present()
-				if present and not was_present:
-					# Card just inserted
-					self.after(0, self._on_card_inserted)
-				was_present = present
-			except Exception:
-				pass
-			
-			time.sleep(0.5)
-
-	def _on_card_inserted(self) -> None:
-		"""
-		Called on main thread when a card is detected.
-		"""
-		# If e-card is disabled in settings, do nothing
-		if not self.settings.ecard_enabled:
-			return
-
-		# If we are already in a register dialog, just bring it to front
-		if self._current_register_dialog and self._current_register_dialog.winfo_exists():
-			self._current_register_dialog.lift()
-			# self._current_register_dialog.focus_force() # Optional: force focus
-			return
-
-		# If we are not logged in or have no concern, we can't register properly,
-		# but maybe we should show a warning or just ignore?
-		# The _open_register method checks for login/concern and shows error if missing.
-		# So we can just call it.
-		
-		# We don't know which group to preselect, so pass None.
-		# Pass auto_read=False so it doesn't read immediately, just opens the form.
-		self._open_register(None, "", auto_read=False)
 
 	def _hotkey_toggle(self, var: tk.BooleanVar, fn) -> None:
 		try:
@@ -1715,7 +1699,6 @@ class App(ctk.CTk):
 			messagebox.showerror(tr("concern"), tr("concern_set_error", e), parent=self)
 
 	def destroy(self) -> None:
-		self._ecard_thread_running = False
 		super().destroy()
 
 

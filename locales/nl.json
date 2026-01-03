@@ -81,5 +81,6 @@
     "paused_no_concern": "Gepauzeerd (Geen inzet)",
     "refresh_in": "Vernieuwen in {}s",
     "refreshing": "Vernieuwen...",
-    "language": "Taal"
+    "language": "Taal",
+    "read_ecard_success_remove": "E-card succesvol gelezen. U kunt de kaart nu verwijderen."
 }

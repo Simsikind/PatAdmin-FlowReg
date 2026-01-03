@@ -81,5 +81,6 @@
     "paused_no_concern": "Pausiert (Kein Ambulanz)",
     "refresh_in": "Aktualisierung in {}s",
     "refreshing": "Aktualisiere...",
-    "language": "Sprache"
+    "language": "Sprache",
+    "read_ecard_success_remove": "E-Card erfolgreich gelesen. Sie können die Karte jetzt entfernen."
 }

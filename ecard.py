@@ -387,6 +387,8 @@ def _parse_grunddaten(blob: bytes) -> Dict[str, Any]:
 # --------------------------
 
 def is_card_present() -> bool:
+    return False
+    #Due to bugs, this function doesnt quite work.
     """
     Check if any connected reader has a card inserted.
     Returns True if at least one reader has a card.
@@ -461,3 +463,23 @@ def read_data() -> tuple[str, str, str, str, str]:
     sex = _normalize_sex(parsed.get("gender"))
 
     return (lastname, firstname, birthday, insurance, sex)
+
+
+if __name__ == "__main__":
+    print("Checking for card presence...")
+    if is_card_present():
+        print("Card detected!")
+        try:
+            print("Reading data...")
+            data = read_data()
+            print("-" * 20)
+            print(f"Lastname:  {data[0]}")
+            print(f"Firstname: {data[1]}")
+            print(f"Birthday:  {data[2]}")
+            print(f"SVNR:      {data[3]}")
+            print(f"Sex:       {data[4]}")
+            print("-" * 20)
+        except Exception as e:
+            print(f"Error reading card: {e}")
+    else:
+        print("No card detected in any reader.")

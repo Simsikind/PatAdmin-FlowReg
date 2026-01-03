@@ -81,5 +81,6 @@
     "paused_no_concern": "Pausado (Sin intervención)",
     "refresh_in": "Actualización en {}s",
     "refreshing": "Actualizando...",
-    "language": "Idioma"
+    "language": "Idioma",
+    "read_ecard_success_remove": "E-card leída con éxito. Ya puede retirar la tarjeta."
 }

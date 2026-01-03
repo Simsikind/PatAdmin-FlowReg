@@ -81,5 +81,6 @@
     "paused_no_concern": "In pausa (Nessun intervento)",
     "refresh_in": "Aggiornamento in {}s",
     "refreshing": "Aggiornamento...",
-    "language": "Lingua"
+    "language": "Lingua",
+    "read_ecard_success_remove": "E-card letta con successo. Ora è possibile rimuovere la carta."
 }
