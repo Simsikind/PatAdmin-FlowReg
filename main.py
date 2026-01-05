@@ -466,9 +466,15 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		display_to_group_id: dict[str, int],
 		prefill_group_display: str,
 		auto_read: bool = False,
+		patient: Patient | None = None,
+		patient_id: int | None = None,
 	):
 		super().__init__(master)
-		self.title(tr("register_new_patient"))
+		self._patient_id = patient_id
+		if self._patient_id:
+			self.title(tr("edit_patient_dialog_title", self._patient_id))
+		else:
+			self.title(tr("register_new_patient"))
 		self.resizable(True, False)
 		self.protocol("WM_DELETE_WINDOW", self.destroy)
 
@@ -569,7 +575,8 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		# Buttons
 		btns = ctk.CTkFrame(form, fg_color="transparent")
 		btns.grid(row=11, column=0, columnspan=3, sticky="w", pady=(0, 10))
-		ctk.CTkButton(btns, text=tr("save_patient"), command=self._on_save).pack(side="left", padx=(0, 10))
+		save_text = tr("save_patient_id", self._patient_id) if self._patient_id else tr("save_patient")
+		ctk.CTkButton(btns, text=save_text, command=self._on_save).pack(side="left", padx=(0, 10))
 		ctk.CTkButton(btns, text=tr("close"), command=self.destroy).pack(side="left")
 
 		# Hotkeys
@@ -586,6 +593,30 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		
 		if auto_read and self._ecard_enabled:
 			self.after(200, self._on_read_ecard)
+		if patient:
+			self.lastname_entry.insert(0, patient.lastname)
+			self.firstname_entry.insert(0, patient.firstname)
+			self.number_entry.insert(0, patient.external_id)
+			self.svnr_entry.insert(0, patient.insurance)
+			if self._birth_mode == "picker":
+				try:
+					self.birth_picker.set_date(patient.birthday)
+				except Exception:
+					pass
+			elif patient.birthday:
+				self.birth_entry.insert(0, patient.birthday)
+			
+			if patient.sex in ["Male", "Female"]:
+				self.sex_var.set(patient.sex)
+			else:
+				self.sex_var.set("None/Other")
+			
+			if patient.group_name:
+				self.group_var.set(patient.group_name)
+			
+			self.diagnosis_text.insert("1.0", patient.diagnosis)
+			self.info_text.insert("1.0", patient.info)
+			self.naca_var.set(patient.naca)
 
 		self.grab_set()
 		self.transient(master)
@@ -803,7 +834,10 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 			return
 
 		try:
-			result = PatAdmin.register(self._server_url, self._cookies, patient.to_payload())
+			if self._patient_id:
+				result = PatAdmin.edit_patient(self._server_url, self._cookies, self._patient_id, patient.to_payload())
+			else:
+				result = PatAdmin.register(self._server_url, self._cookies, patient.to_payload())
 		except Exception as e:
 			messagebox.showerror(tr("save_patient"), tr("save_patient_error_registration", e), parent=self)
 			return
@@ -836,6 +870,15 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 					patient_id=patient_id,
 					group_name=group_display,
 					base_url=self._server_url,
+					is_update=bool(self._patient_id),
+					labels={
+						"print_insurance": tr("print_insurance"),
+						"print_birth": tr("print_birth"),
+						"print_id": tr("print_id"),
+						"print_ext_id": tr("print_ext_id"),
+						"print_pat": tr("print_pat"),
+						"print_updated": tr("print_updated"),
+					}
 				)
 			except Exception as e:
 				messagebox.showerror(tr("printing"), tr("print_error", patient_id, e), parent=self)
@@ -882,6 +925,12 @@ class App(ctk.CTk):
 		self._next_refresh_time: datetime.datetime | None = None
 		self._paused: bool = False
 		self._current_register_dialog: RegisterPatientDialog | None = None
+		
+		# UI State tracking for flicker-free updates
+		self._current_ui_state: str | None = None
+		self._group_widgets: dict[int, dict] = {}
+		self._groups_scroll_frame: ctk.CTkScrollableFrame | None = None
+		self._global_btn_frame: ctk.CTkFrame | None = None
 
 		self._build_menu()
 		self._build_main()
@@ -1209,6 +1258,12 @@ class App(ctk.CTk):
 				self._footer_frame.destroy()
 			except Exception:
 				pass
+		
+		# Reset UI state tracking since we destroyed the content frame
+		self._current_ui_state = None
+		self._group_widgets = {}
+		self._groups_scroll_frame = None
+		self._global_btn_frame = None
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_rowconfigure(0, weight=0) # Header
@@ -1305,6 +1360,10 @@ class App(ctk.CTk):
 				child.destroy()
 			except Exception:
 				pass
+		self._current_ui_state = None
+		self._group_widgets = {}
+		self._groups_scroll_frame = None
+		self._global_btn_frame = None
 
 	def _has_active_concern(self) -> bool:
 		cookies = self.app_state.cookies
@@ -1392,34 +1451,76 @@ class App(ctk.CTk):
 				pass
 
 	def _refresh_main_content(self, *, quiet: bool = False, use_cache: bool = False) -> None:
-		self._clear_main_content()
-
+		# Determine target state
 		server = (self.app_state.server_url or "").strip()
 		if not server:
-			ctk.CTkLabel(
-				self._content_frame,
-				text=tr("no_server_set"),
-				anchor="center",
-			).grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
+			target_state = "no_server"
+		elif not self.app_state.jsessionid:
+			target_state = "not_logged_in"
+		elif not self._has_active_concern():
+			target_state = "no_concern"
+		else:
+			target_state = "list"
+
+		# If state changed, clear everything
+		if self._current_ui_state != target_state:
+			self._clear_main_content()
+			self._current_ui_state = target_state
+			
+			# Build static parts for the new state
+			if target_state == "no_server":
+				ctk.CTkLabel(
+					self._content_frame,
+					text=tr("no_server_set"),
+					anchor="center",
+				).grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
+				return
+			elif target_state == "not_logged_in":
+				ctk.CTkLabel(
+					self._content_frame,
+					text=tr("not_logged_in"),
+					anchor="center",
+				).grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
+				return
+			elif target_state == "no_concern":
+				ctk.CTkLabel(
+					self._content_frame,
+					text=tr("no_concern_selected"),
+					anchor="center",
+				).grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
+				return
+			elif target_state == "list":
+				# Create the container frames once
+				self._global_btn_frame = ctk.CTkFrame(self._content_frame, fg_color="transparent")
+				self._global_btn_frame.grid(row=0, column=0, padx=12, pady=(12, 6), sticky="ew")
+				self._global_btn_frame.grid_columnconfigure(0, weight=1)
+				self._global_btn_frame.grid_columnconfigure(1, weight=1)
+
+				ctk.CTkButton(
+					self._global_btn_frame,
+					text=tr("edit_patient_btn"),
+					height=40,
+					font=ctk.CTkFont(size=16, weight="bold"),
+					command=self._open_edit_patient,
+				).grid(row=0, column=0, padx=(0, 6), sticky="ew")
+
+				ctk.CTkButton(
+					self._global_btn_frame,
+					text=tr("register_new_patient"),
+					height=40,
+					font=ctk.CTkFont(size=16, weight="bold"),
+					command=lambda: self._open_register(None, ""),
+				).grid(row=0, column=1, padx=(6, 0), sticky="ew")
+
+				self._groups_scroll_frame = ctk.CTkScrollableFrame(self._content_frame)
+				self._groups_scroll_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=(6, 12))
+				self._groups_scroll_frame.grid_columnconfigure(0, weight=1)
+
+		# If we are not in list state, we are done (static labels don't update)
+		if target_state != "list":
 			return
 
-		if not self.app_state.jsessionid:
-			ctk.CTkLabel(
-				self._content_frame,
-				text=tr("not_logged_in"),
-				anchor="center",
-			).grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
-			return
-
-		# Logged in, but concern might not be set yet.
-		if not self._has_active_concern():
-			ctk.CTkLabel(
-				self._content_frame,
-				text=tr("no_concern_selected"),
-				anchor="center",
-			).grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
-			return
-
+		# --- List Update Logic ---
 		groups = []
 		counts = {}
 
@@ -1433,7 +1534,7 @@ class App(ctk.CTk):
 				self._cached_groups = [g for g in (groups or []) if isinstance(g, dict)]
 				self._cached_counts = counts
 			except Exception as e:
-				if use_cache: # Fallback to cache if fetch fails?
+				if use_cache:
 					groups = self._cached_groups
 					counts = self._cached_counts
 				elif not quiet:
@@ -1442,11 +1543,13 @@ class App(ctk.CTk):
 				else:
 					return
 
-		# Cache groups for register dialog
+		# Cache groups for register dialog (same logic as before)
 		self._cached_groups = [g for g in (groups or []) if isinstance(g, dict)]
 		self._group_display_to_id = {}
-		group_displays: list[str] = []
 		name_counts: dict[str, int] = {}
+		
+		# First pass to calculate display names
+		temp_groups = []
 		for g in self._cached_groups:
 			gid = g.get("id")
 			if not isinstance(gid, int):
@@ -1457,76 +1560,136 @@ class App(ctk.CTk):
 			name = name.strip()
 			count = name_counts.get(name, 0) + 1
 			name_counts[name] = count
-			display = name if count == 1 else f"{name} ({count})"
-			self._group_display_to_id[display] = gid
-			group_displays.append(display)
+			temp_groups.append((gid, name))
 
-		scroll = ctk.CTkScrollableFrame(self._content_frame)
-		scroll.grid(row=1, column=0, sticky="nsew", padx=12, pady=(6, 12))
-		scroll.grid_columnconfigure(0, weight=1)
-
-		# Global register button (addition, not replacement for inline buttons)
-		# Placed outside scroll frame (Row 0)
-		ctk.CTkButton(
-			self._content_frame,
-			text=tr("register_new_patient"),
-			height=40,
-			font=ctk.CTkFont(size=16, weight="bold"),
-			command=lambda: self._open_register(None, ""),
-		).grid(row=0, column=0, padx=12, pady=(12, 6), sticky="ew")
-
-		for idx, group in enumerate(groups or []):
-			if not isinstance(group, dict):
-				continue
-			gid = group.get("id")
-			if not isinstance(gid, int):
-				continue
-
-			# Use cached display names so register dialog can map back to group id.
-			# Find the display string for this gid.
-			gname = None
-			for disp, did in self._group_display_to_id.items():
-				if did == gid:
-					gname = disp
-					break
-			if not gname:
-				gname = f"Group {gid}"
+		# Second pass to build display map and update UI
+		seen_gids = set()
+		
+		for idx, (gid, raw_name) in enumerate(temp_groups):
+			seen_gids.add(gid)
+			count = name_counts[raw_name]
+			gname = raw_name if count == 1 else f"{raw_name} ({count})"
+			self._group_display_to_id[gname] = gid
 
 			capacity = PatAdmin.get_group_capacity(self.app_state.server_url, self.app_state.cookies or {}, gid)
 			patient_count = int(counts.get(gid, 0))
 
-			row = ctk.CTkFrame(scroll)
-			row.grid(row=idx + 1, column=0, sticky="ew", padx=6, pady=6)
-			row.grid_columnconfigure(1, weight=1)
-
-			ctk.CTkLabel(row, text=gname, width=120, anchor="w").grid(row=0, column=0, padx=(10, 10), pady=10, sticky="w")
-
-			# Capacity visualization
-			# Match the canvas background to the current CTk theme/frame color
-			frame_bg = self._resolve_theme_color(ctk.ThemeManager.theme["CTkFrame"]["fg_color"])
-			canvas = tk.Canvas(row, highlightthickness=0, bd=0, bg=frame_bg)
-			canvas.grid(row=0, column=1, padx=(0, 10), pady=10, sticky="ew")
-			self._draw_capacity_icons(canvas, patients=patient_count, capacity=capacity)
-
-			# Occupancy text to the right of the indicators: e.g. "10% (1/10)"
+			# Calculate occupancy text
 			if isinstance(capacity, int) and capacity > 0:
 				pct = int(round((patient_count * 100) / capacity))
 				occ_text = f"{pct}% ({patient_count}/{capacity})"
 			else:
 				occ_text = f"- % ({patient_count}/?)"
-			ctk.CTkLabel(row, text=occ_text, width=110, anchor="e").grid(
-				row=0, column=2, padx=(0, 10), pady=10, sticky="e"
-			)
 
-			btn = ctk.CTkButton(
-				row,
-				text=tr("register_new_patient_at", gname),
-				command=lambda gid=gid, name=gname: self._open_register(gid, name),
-				width=260,
-			)
-			btn.grid(row=0, column=3, padx=(0, 10), pady=10, sticky="e")
+			# Update or Create Widget
+			if gid in self._group_widgets:
+				# Update existing
+				w = self._group_widgets[gid]
+				# Update position if changed (grid) - usually just order
+				w["frame"].grid(row=idx, column=0, sticky="ew", padx=6, pady=6)
+				
+				w["name_label"].configure(text=gname)
+				w["occ_label"].configure(text=occ_text)
+				
+				# Redraw canvas
+				self._draw_capacity_icons(w["canvas"], patients=patient_count, capacity=capacity)
+				
+				# Update button command (closure capture fix)
+				w["btn"].configure(
+					text=tr("register_new_patient_at", gname),
+					command=lambda gid=gid, name=gname: self._open_register(gid, name)
+				)
+			else:
+				# Create new
+				row = ctk.CTkFrame(self._groups_scroll_frame)
+				row.grid(row=idx, column=0, sticky="ew", padx=6, pady=6)
+				row.grid_columnconfigure(1, weight=1)
 
-	def _open_register(self, group_id: int | None, group_display: str, auto_read: bool = False) -> None:
+				lbl_name = ctk.CTkLabel(row, text=gname, width=120, anchor="w")
+				lbl_name.grid(row=0, column=0, padx=(10, 10), pady=10, sticky="w")
+
+				frame_bg = self._resolve_theme_color(ctk.ThemeManager.theme["CTkFrame"]["fg_color"])
+				canvas = tk.Canvas(row, highlightthickness=0, bd=0, bg=frame_bg)
+				canvas.grid(row=0, column=1, padx=(0, 10), pady=10, sticky="ew")
+				self._draw_capacity_icons(canvas, patients=patient_count, capacity=capacity)
+
+				lbl_occ = ctk.CTkLabel(row, text=occ_text, width=110, anchor="e")
+				lbl_occ.grid(row=0, column=2, padx=(0, 10), pady=10, sticky="e")
+
+				btn = ctk.CTkButton(
+					row,
+					text=tr("register_new_patient_at", gname),
+					command=lambda gid=gid, name=gname: self._open_register(gid, name),
+					width=260,
+				)
+				btn.grid(row=0, column=3, padx=(0, 10), pady=10, sticky="e")
+
+				self._group_widgets[gid] = {
+					"frame": row,
+					"name_label": lbl_name,
+					"canvas": canvas,
+					"occ_label": lbl_occ,
+					"btn": btn
+				}
+
+		# Remove widgets for groups that are gone
+		for gid in list(self._group_widgets.keys()):
+			if gid not in seen_gids:
+				w = self._group_widgets.pop(gid)
+				w["frame"].destroy()
+
+	def _open_edit_patient(self) -> None:
+		dialog = ctk.CTkInputDialog(text=tr("edit_patient_enter_id"), title=tr("edit_patient_title"))
+		
+		res = dialog.get_input()
+		if not res:
+			return
+		
+		try:
+			pid = int(res)
+		except ValueError:
+			messagebox.showerror(tr("edit_patient_title"), tr("edit_patient_invalid_id"), parent=self)
+			return
+
+		try:
+			data = PatAdmin.get_patient_details(self.app_state.server_url, self.app_state.cookies, pid)
+		except Exception as e:
+			messagebox.showerror(tr("edit_patient_title"), tr("edit_patient_fetch_error", e), parent=self)
+			return
+
+		if not data:
+			messagebox.showerror(tr("edit_patient_title"), tr("edit_patient_not_found"), parent=self)
+			return
+
+		try:
+			gid = data.get("group")
+			gname = ""
+			if gid:
+				for disp, did in self._group_display_to_id.items():
+					if did == gid:
+						gname = disp
+						break
+			
+			p = Patient(
+				firstname=data.get("firstname") or "",
+				lastname=data.get("lastname") or "",
+				group_id=gid or 0,
+				group_name=gname,
+				external_id=data.get("externalId") or "",
+				naca=data.get("naca") or "I",
+				sex=data.get("sex") or "Male",
+				info=data.get("info") or "",
+				diagnosis=data.get("diagnosis") or "",
+				insurance=data.get("insurance") or "",
+				birthday=data.get("birthday") or "",
+			)
+			
+			self._open_register(gid, gname, patient=p, patient_id=pid)
+			
+		except Exception as e:
+			messagebox.showerror(tr("edit_patient_title"), tr("edit_patient_parse_error", e), parent=self)
+
+	def _open_register(self, group_id: int | None, group_display: str, auto_read: bool = False, patient: Patient | None = None, patient_id: int | None = None) -> None:
 		if not self._has_active_concern():
 			messagebox.showerror(tr("register_new_patient"), tr("register_error_login"), parent=self)
 			return
@@ -1543,6 +1706,8 @@ class App(ctk.CTk):
 			display_to_group_id=self._group_display_to_id,
 			prefill_group_display=(group_display if group_id is not None else ""),
 			auto_read=auto_read,
+			patient=patient,
+			patient_id=patient_id,
 		)
 		self._paused = True
 		self._current_register_dialog = dlg

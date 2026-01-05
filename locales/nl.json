@@ -82,5 +82,20 @@
     "refresh_in": "Vernieuwen in {}s",
     "refreshing": "Vernieuwen...",
     "language": "Taal",
-    "read_ecard_success_remove": "E-card succesvol gelezen. U kunt de kaart nu verwijderen."
+    "read_ecard_success_remove": "E-card succesvol gelezen. U kunt de kaart nu verwijderen.",
+    "edit_patient_btn": "Patiënt Bewerken",
+    "edit_patient_title": "Patiënt Bewerken",
+    "edit_patient_enter_id": "Voer Patiënt-ID in:",
+    "edit_patient_invalid_id": "Ongeldige ID",
+    "edit_patient_fetch_error": "Fout bij ophalen patiënt: {}",
+    "edit_patient_not_found": "Patiënt niet gevonden",
+    "edit_patient_parse_error": "Fout bij verwerken patiëntgegevens: {}",
+    "edit_patient_dialog_title": "Patiënt {} Bewerken",
+    "save_patient_id": "Patiënt {} Opslaan",
+    "print_insurance": "Verzekering",
+    "print_birth": "Geb.",
+    "print_id": "ID",
+    "print_ext_id": "Ext.ID",
+    "print_pat": "Pat.",
+    "print_updated": "(BIJGEWERKT)"
 }

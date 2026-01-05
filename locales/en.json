@@ -82,5 +82,20 @@
     "refresh_in": "Refresh in {}s",
     "refreshing": "Refreshing...",
     "language": "Language",
-    "read_ecard_success_remove": "E-card read successfully. You can remove the card now."
+    "read_ecard_success_remove": "E-card read successfully. You can remove the card now.",
+    "edit_patient_btn": "Edit Patient",
+    "edit_patient_title": "Edit Patient",
+    "edit_patient_enter_id": "Enter Patient ID:",
+    "edit_patient_invalid_id": "Invalid ID",
+    "edit_patient_fetch_error": "Error fetching patient: {}",
+    "edit_patient_not_found": "Patient not found",
+    "edit_patient_parse_error": "Error parsing patient data: {}",
+    "edit_patient_dialog_title": "Edit Patient {}",
+    "save_patient_id": "Save Patient {}",
+    "print_insurance": "Insurance",
+    "print_birth": "Birth",
+    "print_id": "ID",
+    "print_ext_id": "Ext.ID",
+    "print_pat": "Pat.",
+    "print_updated": "(UPDATED)"
 }

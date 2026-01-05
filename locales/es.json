@@ -82,5 +82,20 @@
     "refresh_in": "Actualización en {}s",
     "refreshing": "Actualizando...",
     "language": "Idioma",
-    "read_ecard_success_remove": "E-card leída con éxito. Ya puede retirar la tarjeta."
+    "read_ecard_success_remove": "E-card leída con éxito. Ya puede retirar la tarjeta.",
+    "edit_patient_btn": "Editar Paciente",
+    "edit_patient_title": "Editar Paciente",
+    "edit_patient_enter_id": "Ingrese ID del Paciente:",
+    "edit_patient_invalid_id": "ID Inválido",
+    "edit_patient_fetch_error": "Error al obtener paciente: {}",
+    "edit_patient_not_found": "Paciente no encontrado",
+    "edit_patient_parse_error": "Error al procesar datos del paciente: {}",
+    "edit_patient_dialog_title": "Editar Paciente {}",
+    "save_patient_id": "Guardar Paciente {}",
+    "print_insurance": "Seguro",
+    "print_birth": "Nac.",
+    "print_id": "ID",
+    "print_ext_id": "ID Ext.",
+    "print_pat": "Pac.",
+    "print_updated": "(ACTUALIZADO)"
 }

@@ -235,3 +235,139 @@ def get_patient_id_by_name(
         return max(found_ids)
 
     return None
+
+
+def get_patient_details(
+    base_url: str,
+    cookies: dict[str, str],
+    patient_id: int,
+    *,
+    timeout: int = 15
+) -> dict[str, Any] | None:
+    """
+    Retrieves patient details by scraping the edit form at patadmin/treatment/edit/<id>.
+    """
+    base_url = base_url.rstrip("/") + "/"
+    endpoint = urljoin(base_url, f"patadmin/treatment/edit/{patient_id}")
+
+    cookies = dict(cookies or {})
+    _require_cookie(cookies, "JSESSIONID")
+    _require_cookie(cookies, "concern")
+
+    resp = requests.get(endpoint, cookies=cookies, timeout=timeout)
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    
+    html = resp.text
+    
+    # Basic regex-based HTML parsing
+    def get_input_value(name: str) -> str | None:
+        # Matches <input ... name="name" ... value="value" ...>
+        m = re.search(rf'<input[^>]*name="{re.escape(name)}"[^>]*value="([^"]*)"', html)
+        if m: return m.group(1)
+        return None
+
+    def get_textarea_value(name: str) -> str | None:
+        m = re.search(rf'<textarea[^>]*name="{re.escape(name)}"[^>]*>(.*?)</textarea>', html, re.DOTALL)
+        return m.group(1) if m else None
+
+    def get_select_value(name: str) -> str | None:
+        # Find the select block
+        m_select = re.search(rf'<select[^>]*name="{re.escape(name)}"[^>]*>(.*?)</select>', html, re.DOTALL)
+        if not m_select:
+            return None
+        options = m_select.group(1)
+        # Find selected option
+        m_opt = re.search(r'<option[^>]*value="([^"]*)"[^>]*selected="selected"', options)
+        if m_opt: return m_opt.group(1)
+        m_opt = re.search(r'<option[^>]*selected="selected"[^>]*value="([^"]*)"', options)
+        if m_opt: return m_opt.group(1)
+        return None
+
+    def get_radio_value(name: str) -> str | None:
+        # Find input type=radio name=name checked="checked" value="..."
+        m = re.search(rf'<input[^>]*name="{re.escape(name)}"[^>]*checked="checked"[^>]*value="([^"]*)"', html)
+        if m: return m.group(1)
+        
+        m = re.search(rf'<input[^>]*name="{re.escape(name)}"[^>]*value="([^"]*)"[^>]*checked="checked"', html)
+        if m: return m.group(1)
+        return None
+
+    data = {
+        "id": patient_id,
+        "lastname": get_input_value("lastname"),
+        "firstname": get_input_value("firstname"),
+        "externalId": get_input_value("externalId"),
+        "insurance": get_input_value("insurance"),
+        "birthday": get_input_value("birthday"),
+        "sex": get_radio_value("sex"),
+        "diagnosis": get_textarea_value("diagnosis"),
+        "info": get_textarea_value("info"),
+        "naca": get_select_value("naca"),
+    }
+    
+    group_val = get_select_value("group")
+    if group_val:
+        try:
+            data["group"] = int(group_val)
+        except ValueError:
+            data["group"] = None
+    else:
+        data["group"] = None
+
+    return data
+
+
+def edit_patient(
+    base_url: str,
+    cookies: dict[str, str],
+    patient_id: int,
+    payload: dict[str, Any],
+    *,
+    timeout: int = 15
+) -> dict[str, Any]:
+    """
+    Edits an existing patient.
+    
+    Args:
+        base_url: The base URL of the CoCeSo instance.
+        cookies: Dictionary containing required cookies (JSESSIONID, concern).
+        patient_id: The ID of the patient to update.
+        patient_obj: The Patient object containing updated data.
+        timeout: Request timeout in seconds.
+        
+    Returns:
+        A dictionary with 'ok', 'status', and 'text'.
+    """
+    base_url = base_url.rstrip("/") + "/"
+    endpoint = urljoin(base_url, "patadmin/registration/save")
+
+    cookies = dict(cookies or {})
+    _require_cookie(cookies, "JSESSIONID")
+    _require_cookie(cookies, "concern")
+
+    payload = dict(payload or {})
+    
+    # Add the patient ID to the payload so the server knows which patient to update
+    payload["patient"] = patient_id
+    
+    # Ensure addNew is NOT set (it shouldn't be from to_payload(False), but just in case)
+    payload.pop("addNew", None)
+
+    resp = requests.post(
+        endpoint,
+        data=payload,          # form-urlencoded
+        cookies=cookies,
+        allow_redirects=False,  # We might get a redirect to view/edit page
+        timeout=timeout,
+    )
+
+    # Successful update usually redirects (302) or returns 200
+    ok = resp.status_code in (200, 302)
+
+    return {
+        "ok": ok,
+        "status": resp.status_code,
+        "text": resp.text,
+    }

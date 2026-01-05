@@ -141,6 +141,8 @@ def PatPrint(
     patient_id: Optional[int] = None,
     group_name: Optional[str] = None,
     base_url: str = "",
+    is_update: bool = False,
+    labels: dict[str, str] | None = None,
 ) -> None:
     """Print a patient label to an ESC/POS receipt printer.
 
@@ -151,9 +153,19 @@ def PatPrint(
     Optional:
     - patient_id: numeric patient id (used in header + QR URL)
     - base_url: server base URL, e.g. https://example/coceso (used for QR URL)
+    - is_update: if True, prints an "UPDATED" label
+    - labels: dictionary of localized strings
 
     If the printer backend is unavailable, it falls back to console output.
     """
+    labels = labels or {}
+    l_insurance = labels.get("print_insurance", "Insurance")
+    l_birth = labels.get("print_birth", "Birth")
+    l_id = labels.get("print_id", "ID")
+    l_ext_id = labels.get("print_ext_id", "Ext.ID")
+    l_pat = labels.get("print_pat", "Pat.")
+    l_updated = labels.get("print_updated", "(UPDATED)")
+
     lastname = getattr(patient, "lastname", "") or ""
     firstname = getattr(patient, "firstname", "") or ""
     external_id = getattr(patient, "external_id", "") or ""
@@ -176,9 +188,9 @@ def PatPrint(
 
     medium_lines: list[str] = []
     if insurance:
-        medium_lines.append(f"Insurance: {insurance}")
+        medium_lines.append(f"{l_insurance}: {insurance}")
     if birthday_print:
-        medium_lines.append(f"Birth: {birthday_print}")
+        medium_lines.append(f"{l_birth}: {birthday_print}")
     medium_text = "\n".join(medium_lines)
     group_line = (
         (group_name or "").strip()
@@ -189,9 +201,9 @@ def PatPrint(
 
     pid_display = str(patient_id) if patient_id is not None else "-"
     body_small_lines = []
-    body_small_lines.append(f"ID:{pid_display}")
+    body_small_lines.append(f"{l_id}:{pid_display}")
     if external_id:
-        body_small_lines.append(f"Ext.ID:{external_id}")
+        body_small_lines.append(f"{l_ext_id}:{external_id}")
     body_small = "\n".join(body_small_lines)
 
     edit_url = ""
@@ -202,7 +214,9 @@ def PatPrint(
 
     # Try ESC/POS printing; if missing/fails, console fallback
     try:
-        header_text = f"Pat. {pid_display}"
+        header_text = f"{l_pat} {pid_display}"
+        if is_update:
+            header_text += f" {l_updated}"
 
         # Job 1: header (big but narrow, not bold)
         _escpos_job(
@@ -275,7 +289,7 @@ def PatPrint(
         print("--- Print fallback (console) ---")
         print(f"Printer: {printer_name}")
         print(f"Error: {e}")
-        print(f"Pat. {pid_display}")
+        print(f"{l_pat} {pid_display}")
         print(div)
         print(wrap_text(name_line, 16))
         if medium_text:
