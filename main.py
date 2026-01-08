@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import datetime
 import threading
@@ -452,6 +453,92 @@ class DetailsDialog(ctk.CTkToplevel):
 		self.transient(master)
 
 
+class TransportRequestDialog(ctk.CTkToplevel):
+	def __init__(
+		self,
+		master: ctk.CTk,
+		*,
+		ambulance_options: list[tuple[str, str]],
+		initial_ertype: str = "",
+		initial_ambulance_value: str | None = None,
+	):
+		super().__init__(master)
+
+		self.title(tr("transport_title"))
+		self.resizable(False, False)
+		self._result: tuple[str, str, str] | None = None
+		self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+		self._ambulance_display_to_value: dict[str, str] = {}
+		display_values: list[str] = []
+		for disp, val in (ambulance_options or []):
+			if not isinstance(disp, str) or not disp.strip():
+				continue
+			if not isinstance(val, str) or not val.strip():
+				continue
+			disp = disp.strip()
+			val = val.strip()
+			self._ambulance_display_to_value[disp] = val
+			display_values.append(disp)
+
+		if not display_values:
+			self._ambulance_display_to_value["RTW"] = "RTW"
+			display_values = ["RTW"]
+
+		self.grid_columnconfigure(0, weight=1)
+
+		ctk.CTkLabel(self, text=tr("transport_ertype_label")).grid(row=0, column=0, padx=12, pady=(12, 6), sticky="w")
+		self.ertype_entry = ctk.CTkEntry(self, width=420)
+		self.ertype_entry.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="ew")
+		if initial_ertype:
+			self.ertype_entry.insert(0, initial_ertype)
+
+		ctk.CTkLabel(self, text=tr("transport_ambulance_label")).grid(row=2, column=0, padx=12, pady=(0, 6), sticky="w")
+		default_display = display_values[0]
+		if initial_ambulance_value:
+			for disp, val in self._ambulance_display_to_value.items():
+				if val == initial_ambulance_value:
+					default_display = disp
+					break
+		self.ambulance_var = ctk.StringVar(value=default_display)
+		self.ambulance_menu = ctk.CTkOptionMenu(self, values=display_values, variable=self.ambulance_var)
+		self.ambulance_menu.grid(row=3, column=0, padx=12, pady=(0, 12), sticky="ew")
+
+		btns = ctk.CTkFrame(self, fg_color="transparent")
+		btns.grid(row=4, column=0, padx=12, pady=(0, 12), sticky="e")
+		ctk.CTkButton(btns, text=tr("cancel"), command=self._on_cancel).pack(side="right")
+		ctk.CTkButton(btns, text=tr("ok"), command=self._on_ok).pack(side="right", padx=(0, 8))
+
+		# Hotkeys
+		self.bind("<Return>", lambda _e: self._on_ok())
+		self.bind("<Escape>", lambda _e: self._on_cancel())
+
+		self.after(50, self.ertype_entry.focus_set)
+		self.grab_set()
+		self.transient(master)
+
+	def _on_ok(self) -> None:
+		ertype = (self.ertype_entry.get() or "").strip()
+		if not ertype:
+			messagebox.showerror(tr("transport_title"), tr("transport_error_ertype_required"), parent=self)
+			return
+		ambulance_display = (self.ambulance_var.get() or "").strip()
+		if not ambulance_display:
+			return
+		ambulance_value = self._ambulance_display_to_value.get(ambulance_display)
+		if not ambulance_value:
+			return
+		self._result = (ertype, ambulance_value, ambulance_display)
+		self.destroy()
+
+	def _on_cancel(self) -> None:
+		self._result = None
+		self.destroy()
+
+	def get_value(self) -> tuple[str, str, str] | None:
+		return self._result
+
+
 class RegisterPatientDialog(ctk.CTkToplevel):
 	def __init__(
 		self,
@@ -461,6 +548,7 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		cookies: dict[str, str],
 		printer_name: str,
 		printing_enabled: bool,
+		print_on_save: bool = True,
 		ecard_enabled: bool,
 		group_choices: list[str],
 		display_to_group_id: dict[str, int],
@@ -483,6 +571,7 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 		self._display_to_group_id = dict(display_to_group_id or {})
 		self._printer_name = (printer_name or "").strip() or "Generic / Text Only"
 		self._printing_enabled = bool(printing_enabled)
+		self._print_on_save = bool(print_on_save)
 		self._ecard_enabled = bool(ecard_enabled)
 		self._birth_mode: str = "picker"
 
@@ -861,8 +950,8 @@ class RegisterPatientDialog(ctk.CTkToplevel):
 			self.destroy()
 			return
 
-		# Print immediately after successful registration
-		if self._printing_enabled:
+		# Print immediately after successful registration (unless caller suppresses it)
+		if self._printing_enabled and self._print_on_save:
 			try:
 				print_util.PatPrint(
 					self._printer_name,
@@ -1495,6 +1584,7 @@ class App(ctk.CTk):
 				self._global_btn_frame.grid(row=0, column=0, padx=12, pady=(12, 6), sticky="ew")
 				self._global_btn_frame.grid_columnconfigure(0, weight=1)
 				self._global_btn_frame.grid_columnconfigure(1, weight=1)
+				self._global_btn_frame.grid_columnconfigure(2, weight=1)
 
 				ctk.CTkButton(
 					self._global_btn_frame,
@@ -1506,11 +1596,19 @@ class App(ctk.CTk):
 
 				ctk.CTkButton(
 					self._global_btn_frame,
+					text=tr("request_transport_btn"),
+					height=40,
+					font=ctk.CTkFont(size=16, weight="bold"),
+					command=self._open_request_transport,
+				).grid(row=0, column=1, padx=(6, 6), sticky="ew")
+
+				ctk.CTkButton(
+					self._global_btn_frame,
 					text=tr("register_new_patient"),
 					height=40,
 					font=ctk.CTkFont(size=16, weight="bold"),
 					command=lambda: self._open_register(None, ""),
-				).grid(row=0, column=1, padx=(6, 0), sticky="ew")
+				).grid(row=0, column=2, padx=(6, 0), sticky="ew")
 
 				self._groups_scroll_frame = ctk.CTkScrollableFrame(self._content_frame)
 				self._groups_scroll_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=(6, 12))
@@ -1689,7 +1787,232 @@ class App(ctk.CTk):
 		except Exception as e:
 			messagebox.showerror(tr("edit_patient_title"), tr("edit_patient_parse_error", e), parent=self)
 
-	def _open_register(self, group_id: int | None, group_display: str, auto_read: bool = False, patient: Patient | None = None, patient_id: int | None = None) -> None:
+	def _open_request_transport(self) -> None:
+		if not self._has_active_concern():
+			messagebox.showerror(tr("transport_title"), tr("transport_error_login"), parent=self)
+			return
+
+		dialog = ctk.CTkInputDialog(text=tr("transport_enter_id"), title=tr("transport_title"))
+		res = dialog.get_input()
+		if not res:
+			return
+
+		try:
+			pid = int(res)
+		except ValueError:
+			messagebox.showerror(tr("transport_title"), tr("edit_patient_invalid_id"), parent=self)
+			return
+
+		try:
+			data = PatAdmin.get_patient_details(self.app_state.server_url, self.app_state.cookies, pid)
+		except Exception as e:
+			messagebox.showerror(tr("transport_title"), tr("edit_patient_fetch_error", e), parent=self)
+			return
+
+		if not data:
+			messagebox.showerror(tr("transport_title"), tr("edit_patient_not_found"), parent=self)
+			return
+
+		try:
+			gid = data.get("group")
+			gname = ""
+			if gid:
+				for disp, did in self._group_display_to_id.items():
+					if did == gid:
+						gname = disp
+						break
+
+			patient = Patient(
+				firstname=data.get("firstname") or "",
+				lastname=data.get("lastname") or "",
+				group_id=gid or 0,
+				group_name=gname,
+				external_id=data.get("externalId") or "",
+				naca=data.get("naca") or "I",
+				sex=data.get("sex") or "Male",
+				info=data.get("info") or "",
+				diagnosis=data.get("diagnosis") or "",
+				insurance=data.get("insurance") or "",
+				birthday=data.get("birthday") or "",
+			)
+		except Exception as e:
+			messagebox.showerror(tr("transport_title"), tr("edit_patient_parse_error", e), parent=self)
+			return
+
+		def _patient_snapshot(d: dict) -> tuple:
+			def s(key: str) -> str:
+				v = d.get(key)
+				return str(v or "").strip()
+			def i(key: str) -> int:
+				v = d.get(key)
+				try:
+					return int(v)
+				except Exception:
+					return 0
+			return (
+				s("firstname"),
+				s("lastname"),
+				s("externalId"),
+				s("insurance"),
+				s("birthday"),
+				s("sex"),
+				s("naca"),
+				s("info"),
+				s("diagnosis"),
+				i("group"),
+			)
+
+		def _print_patient_after_edit(p: Patient, *, group_display: str) -> None:
+			if not bool(self.settings.printing_enabled):
+				return
+			try:
+				print_util.PatPrint(
+					self.settings.printer_name,
+					p,
+					patient_id=pid,
+					group_name=group_display,
+					base_url=self.app_state.server_url,
+					is_update=True,
+					labels={
+						"print_insurance": tr("print_insurance"),
+						"print_birth": tr("print_birth"),
+						"print_id": tr("print_id"),
+						"print_ext_id": tr("print_ext_id"),
+						"print_pat": tr("print_pat"),
+						"print_updated": tr("print_updated"),
+					},
+				)
+			except Exception as e:
+				messagebox.showerror(tr("printing"), tr("print_error", pid, e), parent=self)
+
+		# Step 1: allow edit (but defer printing)
+		self._open_register(gid, gname, patient=patient, patient_id=pid, print_on_save=False)
+
+		# Fetch updated patient after edit once, and decide whether anything changed.
+		try:
+			fresh = PatAdmin.get_patient_details(self.app_state.server_url, self.app_state.cookies, pid)
+			if not fresh:
+				raise RuntimeError("Patient not found")
+		except Exception as e:
+			messagebox.showerror(tr("transport_title"), tr("transport_fetch_after_edit_error", e), parent=self)
+			return
+
+		edited = _patient_snapshot(data) != _patient_snapshot(fresh)
+
+		try:
+			gid2 = fresh.get("group")
+			gname2 = ""
+			if gid2:
+				for disp, did in self._group_display_to_id.items():
+					if did == gid2:
+						gname2 = disp
+						break
+			patient2 = Patient(
+				firstname=fresh.get("firstname") or "",
+				lastname=fresh.get("lastname") or "",
+				group_id=gid2 or 0,
+				group_name=gname2,
+				external_id=fresh.get("externalId") or "",
+				naca=fresh.get("naca") or "I",
+				sex=fresh.get("sex") or "Male",
+				info=fresh.get("info") or "",
+				diagnosis=fresh.get("diagnosis") or "",
+				insurance=fresh.get("insurance") or "",
+				birthday=fresh.get("birthday") or "",
+			)
+		except Exception as e:
+			messagebox.showerror(tr("transport_title"), tr("transport_parse_after_edit_error", e), parent=self)
+			return
+
+		# Step 2: ask whether to continue
+		if not messagebox.askyesno(tr("transport_title"), tr("transport_continue_prompt"), parent=self):
+			if edited:
+				_print_patient_after_edit(patient2, group_display=gname2)
+			return
+
+		# Step 3+4: structured input (required ERType + allowed ambulance values)
+		ambulance_options = [
+			(tr("transport_ambulance_ktw_sitzend"), "KTW_sitzend"),
+			(tr("transport_ambulance_ktw_liegend"), "KTW_liegend"),
+			(tr("transport_ambulance_rtw"), "RTW"),
+			(tr("transport_ambulance_rtw_mit_nef"), "RTW_mit_NEF"),
+		]
+		dlg = TransportRequestDialog(self, ambulance_options=ambulance_options)
+		self.wait_window(dlg)
+		res2 = dlg.get_value()
+		if not res2:
+			if edited:
+				_print_patient_after_edit(patient2, group_display=gname2)
+			return
+		ertype_input, ambulance_value, ambulance_display = res2
+		ertype_server = ertype_input
+
+		# Step 5: final confirm
+		if not messagebox.askyesno(
+			tr("transport_title"),
+			tr("transport_confirm_text", pid, ertype_input, ambulance_display),
+			parent=self,
+		):
+			if edited:
+				_print_patient_after_edit(patient2, group_display=gname2)
+			return
+
+		try:
+			result = PatAdmin.request_transport(
+				self.app_state.server_url,
+				self.app_state.cookies or {},
+				pid,
+				patient2,
+				ertype_server,
+				ambulance_value,
+			)
+		except Exception as e:
+			if edited:
+				_print_patient_after_edit(patient2, group_display=gname2)
+			messagebox.showerror(tr("transport_title"), tr("transport_request_error", e), parent=self)
+			return
+
+		if not result.get("ok"):
+			if edited:
+				_print_patient_after_edit(patient2, group_display=gname2)
+			messagebox.showerror(
+				tr("transport_title"),
+				tr("transport_request_error_status", result.get("status"), result.get("text")),
+				parent=self,
+			)
+			return
+
+		# Print after transport is confirmed and sent; include transport details.
+		if bool(self.settings.printing_enabled):
+			transport_lines = [
+				str(tr("transport_title")),
+				f"{tr('transport_ertype_label')}: {ertype_input}",
+				f"{tr('transport_ambulance_label')}: {ambulance_display}",
+			]
+			try:
+				print_util.PatPrint(
+					self.settings.printer_name,
+					patient2,
+					patient_id=pid,
+					group_name=gname2,
+					base_url=self.app_state.server_url,
+					is_update=True,
+					labels={
+						"print_insurance": tr("print_insurance"),
+						"print_birth": tr("print_birth"),
+						"print_id": tr("print_id"),
+						"print_ext_id": tr("print_ext_id"),
+						"print_pat": tr("print_pat"),
+						"print_updated": tr("print_updated"),
+					},
+					extra_text="\n".join([ln for ln in transport_lines if ln]),
+				)
+			except Exception as e:
+				messagebox.showerror(tr("printing"), tr("print_error", pid, e), parent=self)
+
+		messagebox.showinfo(tr("transport_title"), tr("transport_success"), parent=self)
+
+	def _open_register(self, group_id: int | None, group_display: str, auto_read: bool = False, patient: Patient | None = None, patient_id: int | None = None, print_on_save: bool = True) -> None:
 		if not self._has_active_concern():
 			messagebox.showerror(tr("register_new_patient"), tr("register_error_login"), parent=self)
 			return
@@ -1701,6 +2024,7 @@ class App(ctk.CTk):
 			cookies=self.app_state.cookies or {},
 			printer_name=self.settings.printer_name,
 			printing_enabled=self.settings.printing_enabled,
+			print_on_save=print_on_save,
 			ecard_enabled=self.settings.ecard_enabled,
 			group_choices=choices,
 			display_to_group_id=self._group_display_to_id,

@@ -11,6 +11,8 @@ from urllib.parse import urljoin
 
 import requests
 
+from Patient import Patient
+
 
 def _require_cookie(cookies: dict[str, str], name: str) -> None:
     value = cookies.get(name)
@@ -364,6 +366,70 @@ def edit_patient(
     )
 
     # Successful update usually redirects (302) or returns 200
+    ok = resp.status_code in (200, 302)
+
+    return {
+        "ok": ok,
+        "status": resp.status_code,
+        "text": resp.text,
+    }
+
+def request_transport(
+    base_url: str,
+    cookies: dict[str, str],
+    patient_id: int,
+    patient_obj: Patient,
+    ertype: str,
+    ambulance: str,
+    priority: bool = False,
+    *,
+    timeout: int = 15
+) -> dict[str, Any]:
+    """
+    Requests a transport for a patient.
+    
+    Args:
+        base_url: The base URL of the CoCeSo instance.
+        cookies: Dictionary containing required cookies (JSESSIONID, concern).
+        patient_id: The ID of the patient.
+        patient_obj: The Patient object containing patient data.
+        ertype: The emergency type (e.g. "Intern", "Unfall").
+        ambulance: The ambulance type (e.g. "KTW", "RTW", "BKTW", "NAW", "NEF", "RTW_C", "NAH").
+        priority: Whether this is a priority transport.
+        timeout: Request timeout in seconds.
+        
+    Returns:
+        A dictionary with 'ok', 'status', and 'text'.
+    """
+    base_url = base_url.rstrip("/") + "/"
+    endpoint = urljoin(base_url, "patadmin/treatment/transport")
+
+    cookies = dict(cookies or {})
+    _require_cookie(cookies, "JSESSIONID")
+    _require_cookie(cookies, "concern")
+
+    # Start with standard patient payload
+    payload = patient_obj.to_payload(add_new_flow=False)
+    
+    # Remove 'group' as it is not part of TransportForm/PostprocessingForm
+    # (though Spring might just ignore it if present)
+    payload.pop("group", None)
+    
+    # Add transport specific fields
+    payload["patient"] = patient_id
+    payload["ertype"] = ertype
+    payload["ambulance"] = ambulance
+    # Spring MVC typically binds boolean from "true"/"false" strings or checkbox presence
+    payload["priority"] = "true" if priority else "false"
+
+    resp = requests.post(
+        endpoint,
+        data=payload,          # form-urlencoded
+        cookies=cookies,
+        allow_redirects=False,
+        timeout=timeout,
+    )
+
     ok = resp.status_code in (200, 302)
 
     return {

@@ -21,6 +21,18 @@ In high-pressure environments (e.g., triage tents, field hospitals), speed and a
     *   Fill in the details (Last Name, First Name, Treatment Group are required).
     *   Use `Tab` or `Arrow Keys` to navigate fields.
     *   Press `Enter` or `Ctrl+S` to save.
+5.  **Request Transport (Edit + Transport):**
+    *   Click **Request Transport**.
+    *   Enter the patient ID.
+    *   The patient edit dialog opens first (so you can update fields before transport).
+    *   After editing, confirm whether you want to continue with requesting transport.
+    *   Enter **ER Type** (free text) and select the ambulance type.
+    *   Confirm the transport request.
+
+Printing behavior for transport:
+- The app waits until the transport is confirmed and successfully sent, then prints.
+- The printout includes the patient label plus the transport details (ER Type + Ambulance).
+- If transport is cancelled, but the patient was edited, the app prints the updated patient label.
 5.  **Monitor:** The main dashboard updates automatically (default: every 10s) to show the current occupancy of all treatment groups.
 
 ## Keyboard Shortcuts

@@ -143,6 +143,7 @@ def PatPrint(
     base_url: str = "",
     is_update: bool = False,
     labels: dict[str, str] | None = None,
+    extra_text: str | None = None,
 ) -> None:
     """Print a patient label to an ESC/POS receipt printer.
 
@@ -212,6 +213,8 @@ def PatPrint(
 
     div = "-" * min(CHARS_PER_LINE, 32)
 
+    extra_text_norm = (extra_text or "").strip("\n")
+
     # Try ESC/POS printing; if missing/fails, console fallback
     try:
         header_text = f"{l_pat} {pid_display}"
@@ -268,9 +271,19 @@ def PatPrint(
         # Job 4: small details + optional QR + feed + cut
         small_wrapped = wrap_text(body_small, 32).split("\n") if body_small else []
 
+        extra_wrapped: list[str] = []
+        if extra_text_norm:
+            extra_wrapped = wrap_text(extra_text_norm, 32).split("\n")
+
         def _job4(p):
             for ln in small_wrapped:
                 _escpos_text(p, ln, font_size="normal")
+
+            if extra_wrapped:
+                _escpos_text(p, div, font_size="small")
+                for ln in extra_wrapped:
+                    _escpos_text(p, ln, font_size="normal", bold=True)
+
             if edit_url:
                 try:
                     p.qr(edit_url, size=3)
@@ -298,6 +311,9 @@ def PatPrint(
         print(wrap_text(body_big, 16))
         print(div)
         print(wrap_text(body_small, 32))
+        if extra_text_norm:
+            print(div)
+            print(wrap_text(extra_text_norm, 32))
         if edit_url:
             print(edit_url)
         print("(end)")
